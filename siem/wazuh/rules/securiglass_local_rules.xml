@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==========================================================================
+  SecuriGlass Factory OS - Regles locales Wazuh (IT / IAM / audit)
+  ==========================================================================
+  Plage locale : 100000 - 120000 (reservee par Wazuh aux regles utilisateur).
+  Convention de nommage : 1001xx = IAM/audit, 10012x = reseau/OT.
+  Les champs `details.*` proviennent du JSON aplati par le decodeur JSON.
+  ==========================================================================
+-->
+<group name="securiglass,audit,">
+
+  <!-- ===================== BASE AUDIT APPLICATIF ===================== -->
+  <rule id="100100" level="0">
+    <field name="source">^securiglass\.audit$</field>
+    <description>SecuriGlass : evenement d'audit applicatif (regle de base)</description>
+    <group>securiglass_audit,</group>
+  </rule>
+
+  <!-- ===================== AUTHENTIFICATION ===================== -->
+  <rule id="100101" level="5">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^AUTH_LOGIN$</field>
+    <field name="outcome">^FAILURE$</field>
+    <description>SecuriGlass : echec d'authentification pour $(actor_username) depuis $(actor_ip)</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failed,securiglass_auth,</group>
+  </rule>
+
+  <rule id="100102" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^AUTH_LOGIN$</field>
+    <field name="outcome">^SUCCESS$</field>
+    <description>SecuriGlass : authentification reussie pour $(actor_username) depuis $(actor_ip)</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>authentication_success,securiglass_auth,</group>
+  </rule>
+
+  <rule id="100103" level="2">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^AUTH_LOGOUT$</field>
+    <description>SecuriGlass : deconnexion et revocation de jeton pour $(actor_username)</description>
+    <group>securiglass_auth,</group>
+  </rule>
+
+  <rule id="100104" level="6">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^ACCESS_DENIED_RBAC$</field>
+    <description>SecuriGlass : acces RBAC refuse a $(resource) pour $(actor_username)</description>
+    <mitre>
+      <id>T0859</id>
+    </mitre>
+    <group>access_denied,rbac,securiglass_auth,</group>
+  </rule>
+
+  <rule id="100105" level="8">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^ACCESS_DENIED_CLEARANCE$</field>
+    <description>SecuriGlass : acces refuse pour niveau d'habilitation insuffisant ($(actor_username) sur $(resource))</description>
+    <mitre>
+      <id>T0859</id>
+    </mitre>
+    <group>access_denied,clearance,securiglass_auth,</group>
+  </rule>
+
+  <!-- ===================== INTEGRITE DE L'AUDIT ===================== -->
+  <rule id="100106" level="12">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^AUDIT_CHAIN_INTEGRITY_CHECK$</field>
+    <field name="outcome" type="pcre2">^(FAILURE|DENIED|ERROR)$</field>
+    <description>CRITIQUE - SecuriGlass : echec de verification de la chaine d'audit SHA-256 (alteration ou rupture de maillon)</description>
+    <mitre>
+      <id>T0872</id>
+    </mitre>
+    <group>audit_tamper,integrity,securiglass_audit,critical,</group>
+  </rule>
+
+  <!-- ===================== DONNEES CLIENTS ===================== -->
+  <rule id="100107" level="3">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^CUSTOMER_CREATED$</field>
+    <description>SecuriGlass : creation d'un client B2B par $(actor_username)</description>
+    <group>customer_data,securiglass_business,</group>
+  </rule>
+
+  <rule id="100108" level="1">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^CUSTOMER_LISTED$</field>
+    <description>SecuriGlass : consultation du portefeuille clients par $(actor_username)</description>
+    <group>customer_data,securiglass_business,</group>
+  </rule>
+
+  <!-- Volume anormal en une seule requete : details.record_count >= 1000 -->
+  <rule id="100120" level="8">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^CUSTOMER_LISTED$</field>
+    <field name="details.record_count" type="pcre2">^[1-9][0-9]{3,}$</field>
+    <description>SecuriGlass : extraction volumetrique de clients ($(details.record_count) enregistrements) par $(actor_username)</description>
+    <mitre>
+      <id>T0811</id>
+    </mitre>
+    <group>data_exfiltration,customer_data,securiglass_business,</group>
+  </rule>
+
+  <!-- ===================== POLITIQUES ABAC (applicatif) ===================== -->
+  <rule id="100115" level="10">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^ABAC_POLICY_(CREATED|UPDATED|DELETED|DISABLED)$</field>
+    <description>SecuriGlass : modification d'une politique ABAC par $(actor_username) ($(event_type))</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>abac_change,securiglass_auth,</group>
+  </rule>
+
+  <!-- ===================== TELMETRIE (base, pas d'alerte) ===================== -->
+  <rule id="100109" level="0">
+    <if_sid>100100</if_sid>
+    <field name="event_type" type="pcre2">^TELEMETRY_</field>
+    <description>SecuriGlass : ingestion de telemetrie OT (regle de base)</description>
+    <group>telemetry,</group>
+  </rule>
+
+  <!-- ===================== CORRELATIONS AUTHENTIFICATION ===================== -->
+  <!-- 8 echecs depuis la meme IP en 120 s : force brute probable -->
+  <rule id="100110" level="10" frequency="8" timeframe="120">
+    <if_matched_sid>100101</if_matched_sid>
+    <same_field>actor_ip</same_field>
+    <description>SecuriGlass : force brute probable - 8 echecs d'authentification depuis $(actor_ip) en 120 s</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>brute_force,authentication_failed,securiglass_auth,</group>
+  </rule>
+
+  <!-- Succes depuis la meme IP dans les 5 min suivant le seuil de force brute -->
+  <rule id="100111" level="12" frequency="1" timeframe="300">
+    <if_matched_sid>100110</if_matched_sid>
+    <field name="event_type">^AUTH_LOGIN$</field>
+    <field name="outcome">^SUCCESS$</field>
+    <same_field>actor_ip</same_field>
+    <description>CRITIQUE - SecuriGlass : authentification reussie apres une force brute depuis $(actor_ip) ($(actor_username))</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>brute_force,authentication_success,compromise,securiglass_auth,</group>
+  </rule>
+
+  <!-- Verrouillage de compte (compte deja verrouille ou seuil atteint) -->
+  <rule id="100112" level="10">
+    <if_sid>100100</if_sid>
+    <field name="event_type">^AUTH_LOGIN$</field>
+    <field name="details.reason" type="pcre2">^account_locked</field>
+    <description>SecuriGlass : compte $(actor_username) verrouille apres echecs repetes (depuis $(actor_ip))</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>account_lockout,brute_force,securiglass_auth,</group>
+  </rule>
+
+  <!-- 5 refus RBAC du meme utilisateur en 60 s : enumeration de privileges -->
+  <rule id="100113" level="9" frequency="5" timeframe="60">
+    <if_matched_sid>100104</if_matched_sid>
+    <same_field>actor_username</same_field>
+    <description>SecuriGlass : refus RBAC repetes (5 en 60 s) pour $(actor_username) - tentative d'escalade ou d'enumeration</description>
+    <mitre>
+      <id>T0859</id>
+    </mitre>
+    <group>access_denied,rbac,escalation,securiglass_auth,</group>
+  </rule>
+
+  <!-- 3 refus d'habilitation en 5 min -->
+  <rule id="100114" level="9" frequency="3" timeframe="300">
+    <if_matched_sid>100105</if_matched_sid>
+    <same_field>actor_username</same_field>
+    <description>SecuriGlass : refus d'habilitation repetes (3 en 5 min) pour $(actor_username)</description>
+    <mitre>
+      <id>T0859</id>
+    </mitre>
+    <group>access_denied,clearance,escalation,securiglass_auth,</group>
+  </rule>
+
+  <!-- 10 consultations du portefeuille clients en 60 s : aspiration -->
+  <rule id="100129" level="9" frequency="10" timeframe="60">
+    <if_matched_sid>100108</if_matched_sid>
+    <same_field>actor_username</same_field>
+    <description>SecuriGlass : consultations clients repetees (10 en 60 s) par $(actor_username) - exfiltration probable</description>
+    <mitre>
+      <id>T0811</id>
+    </mitre>
+    <group>data_exfiltration,customer_data,securiglass_business,</group>
+  </rule>
+
+  <!-- ===================== FIM ===================== -->
+  <rule id="100126" level="8">
+    <if_group>syscheck</if_group>
+    <field name="file" type="pcre2">^/(etc/(ssh|passwd|shadow|gshadow|sudoers|pam\.d)/?|usr/(bin|sbin)/|bin/|sbin/)</field>
+    <description>SecuriGlass : modification d'un fichier systeme critique surveille ($(file))</description>
+    <mitre>
+      <id>T0872</id>
+    </mitre>
+    <group>syscheck,integrity,critical_file,</group>
+  </rule>
+
+  <rule id="100127" level="12">
+    <if_group>syscheck</if_group>
+    <field name="file" type="pcre2">^/var/log/securiglass/sealed/</field>
+    <description>CRITIQUE - SecuriGlass : alteration d'un manifeste d'audit scelle ($(file))</description>
+    <mitre>
+      <id>T0872</id>
+    </mitre>
+    <group>syscheck,audit_tamper,integrity,critical,</group>
+  </rule>
+
+</group>

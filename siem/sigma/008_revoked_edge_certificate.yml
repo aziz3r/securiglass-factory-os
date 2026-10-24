@@ -1,0 +1,38 @@
+title: Utilisation d'un certificat edge revoque
+id: 38f8ffba-f1a3-4f08-89e0-f65a7cf07bd2
+status: experimental
+description: >
+  Detection d'une authentification de passerelle edge avec un certificat mTLS
+  marque REVOQUE dans details.cert_status. Un certificat revoque ne doit plus
+  pouvoir ouvrir de session ni pousser de telemetrie signee : sa reutilisation
+  suggere un vol de cle, une passerelle clonnee ou un rejeu depuis un poste tiers.
+references:
+  - https://attack.mitre.org/techniques/T0859/
+  - https://attack.mitre.org/techniques/T0886/
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.persistence
+  - attack.initial_access
+  - attack.t0859
+  - attack.t0886
+  - ics.iec62443-3-3.sr1.2
+logsource:
+  product: securiglass
+  service: edge-gateway
+detection:
+  selection:
+    event_type: EDGE_CERT_AUTH
+    details.cert_status: REVOKED
+  condition: selection
+fields:
+  - actor_username
+  - actor_ip
+  - details.cert_fingerprint
+  - details.cert_serial
+  - details.cert_status
+  - details.gateway_id
+falsepositives:
+  - Rotation de certificat mal orchestree : l'ancien certificat est revoque mais la passerelle n'a pas encore recharge le nouveau.
+  - Environnement de recette reutilisant volontairement un certificat revoque (doit etre isole).
+level: critical

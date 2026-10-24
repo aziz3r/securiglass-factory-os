@@ -1,0 +1,113 @@
+% Préambule partagé des rapports SecuriGlass Factory OS.
+% Style volontairement sobre : pas d'encadrés de couleur, pas de blocs
+% décoratifs. Règles horizontales fines, typographie classique, une seule
+% couleur d'accent reprise de l'identité visuelle du produit.
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{french}
+\setmainfont{Palatino}
+\setsansfont{Helvetica Neue}
+\setmonofont{Menlo}[Scale=0.85]
+\usepackage{microtype}
+\sloppy
+\usepackage[a4paper,top=2.8cm,bottom=2.8cm,left=2.6cm,right=2.6cm,headsep=1.1cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{listings}
+\usepackage{tocloft}
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink,french]{cleveref}
+
+% ---------------------------------------------------------------- couleurs
+\definecolor{accent}{HTML}{15584B}
+\definecolor{accentlight}{HTML}{1F7A68}
+\definecolor{graytext}{HTML}{3F4A47}
+\definecolor{rulegray}{HTML}{C9CFCD}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=accent,
+  citecolor=accent,
+  urlcolor=accentlight,
+  pdfauthor={Mohamed Aziz Baoueb},
+}
+
+% ------------------------------------------------------------------ titres
+\titleformat{\chapter}[hang]
+  {\normalfont\Huge\bfseries\color{accent}}
+  {\thechapter}{1.2cm}{}
+\titlespacing*{\chapter}{0pt}{-0.8cm}{1.0cm}
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{accent}}
+  {\thesection}{0.6em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{graytext}}
+  {\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries\itshape\color{graytext}}
+  {\thesubsubsection}{0.6em}{}
+
+% --------------------------------------------------------------- en-têtes
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancyhead[L]{\small\itshape\nouppercase{\leftmark}}
+\fancyhead[R]{\small\thepage}
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \fancyhead[R]{\small\thepage}
+  \renewcommand{\headrulewidth}{0.4pt}
+}
+
+% ----------------------------------------------------------------- listes
+\setlist{itemsep=2pt, topsep=4pt, parsep=0pt}
+
+% --------------------------------------------------------------- légendes
+\captionsetup{
+  labelfont={bf,color=accent},
+  font=small,
+  skip=6pt,
+  justification=centering,
+}
+
+% ----------------------------------------------------------- code source
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=none,
+  columns=flexible,
+  keywordstyle=\color{accent}\bfseries,
+  commentstyle=\color{graytext}\itshape,
+  stringstyle=\color{accentlight},
+  showstringspaces=false,
+  tabsize=2,
+}
+
+% -------------------------------------------------------- table des matières
+\renewcommand{\cftchapfont}{\bfseries\color{accent}}
+\renewcommand{\cftchappagefont}{\color{accent}}
+
+% ----------------------------------------------------------- environnement
+% figure pleine largeur avec légende, sans cadre ni fond.
+\newcommand{\screenshot}[3]{%
+  \begin{figure}[htbp]
+    \centering
+    \includegraphics[width=#2\textwidth]{figures/#1}
+    \caption{#3}
+  \end{figure}%
+}
+
+% séparateur fin entre deux sections d'un même thème (jamais de remplissage).
+\newcommand{\finesep}{%
+  \par\noindent\textcolor{rulegray}{\rule{\linewidth}{0.4pt}}\par\vspace{4pt}%
+}

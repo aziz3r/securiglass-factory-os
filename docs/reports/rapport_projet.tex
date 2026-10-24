@@ -1,0 +1,357 @@
+\documentclass[11pt,a4paper]{report}
+\input{preambule}
+
+\title{SecuriGlass Factory OS}
+\author{Mohamed Aziz Baoueb}
+\date{Octobre 2026}
+
+\begin{document}
+
+% ============================================================ page de titre
+\begin{titlepage}
+  \centering
+  \vspace*{2.2cm}
+
+  {\Large\scshape Rapport de projet}\\[0.6cm]
+  \textcolor{rulegray}{\rule{0.5\linewidth}{0.4pt}}\\[1.4cm]
+
+  {\fontsize{32}{38}\selectfont\bfseries\color{accent} SecuriGlass Factory~OS}\\[0.5cm]
+  {\Large\itshape Console de supervision sécurisée pour une ligne\\
+  de production de verre trempé}\\[2.2cm]
+
+  \begin{tabular}{rl}
+    \textbf{Auteur} & Mohamed Aziz Baoueb \\[4pt]
+    \textbf{Date} & Octobre 2026 \\[4pt]
+    \textbf{Nature} & Preuve de concept (PoC) \\[4pt]
+    \textbf{Domaine} & Cybersécurité industrielle (OT/IT), IEC~62443, OWASP ASVS \\
+  \end{tabular}
+
+  \vfill
+  \textcolor{rulegray}{\rule{0.5\linewidth}{0.4pt}}\\[0.4cm]
+  {\small Référentiels appliqués : IEC~62443-3-3, OWASP ASVS v4.0, OWASP Top~10 for LLM,\\
+  NIST SP~800-82, RGPD, norme EN~12150-1 (verre de sécurité).}
+\end{titlepage}
+
+\tableofcontents
+
+% ================================================================ chapitre
+\chapter{Contexte et objectifs}
+
+\section{Pourquoi ce projet}
+SecuriGlass Factory~OS est une preuve de concept (PoC) qui simule la supervision
+numérique d'une ligne de production de verre trempé, depuis l'automate qui pilote
+le four jusqu'au tableau de bord consulté par les équipes de l'usine. L'objectif
+n'est pas de livrer un produit fini, mais de démontrer, sur un cas industriel
+concret, comment concevoir un système qui relie un réseau industriel (OT) à un
+réseau informatique (IT) \emph{sans} affaiblir la sécurité de l'un ou de l'autre.
+
+Le verre trempé est un bon cas d'étude : sa fabrication suit une norme physique
+stricte (EN~12150-1, qui fixe les plages de température et de pression de
+trempe), et une dérive du four n'est pas qu'un problème informatique — elle peut
+casser la production ou, dans un cas réel, mettre en danger une personne. Le
+projet traite donc la sécurité informatique et la sécurité physique du procédé
+comme une seule et même préoccupation.
+
+\section{Objectifs poursuivis}
+\begin{itemize}
+  \item Construire une chaîne de bout en bout réaliste : automate simulé en C,
+    passerelle de collecte, liaison unidirectionnelle vers le système
+    d'information, base de données, API, console web.
+  \item Appliquer le modèle de Purdue (zonage par niveaux) et le principe de
+    moindre privilège à chaque frontière du système.
+  \item Donner à un assistant conversationnel (IA) un accès utile aux données de
+    production, sans lui laisser la possibilité de divulguer des informations
+    sensibles ni d'agir sur l'automate.
+  \item Démontrer, par des tests d'intrusion réels et non scénarisés, que les
+    protections tiennent — et documenter honnêtement ce qui ne tient pas encore.
+  \item Produire une console que des rôles différents (direction d'usine,
+    opérateur, qualité, audit sécurité) peuvent utiliser sans qu'aucun ne voie
+    plus que ce dont il a besoin.
+\end{itemize}
+
+\section{Périmètre et limites assumées}
+Ce projet est une démonstration technique, pas un produit industriel homologué.
+Certaines mesures citées dans la documentation (ex. réplication à froid,
+signature des consignes à l'automate, image Docker \emph{distroless}) sont
+volontairement marquées comme \emph{planifiées} plutôt qu'implémentées, pour ne
+jamais laisser croire qu'une protection existe alors qu'elle n'a pas été codée.
+Cette honnêteté sur le périmètre fait partie de la méthode : un rapport de
+sécurité qui surestime ses garanties est plus dangereux qu'un rapport qui les
+sous-estime.
+
+\chapter{Vue d'ensemble du produit}
+
+\section{Les six rôles de la console}
+L'accès à la console est entièrement déterminé par le rôle du compte connecté,
+aussi bien dans l'interface que côté serveur (une tentative d'accès à une
+ressource non autorisée échoue même si l'utilisateur en devine l'adresse).
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Rôle} & \textbf{Ce qu'il voit} \\
+\midrule
+Super administrateur & L'ensemble de la console \\
+Responsable d'usine & Production, stocks, commandes, clients, assistant \\
+Opérateur de ligne & Production, stocks, assistant \\
+Inspecteur qualité & Production uniquement \\
+Auditeur sécurité & Sécurité, journal d'audit, clients \\
+Compte de service (passerelle) & Aucun accès à la console \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Parcours d'une commande, de la vente à la trempe}
+Pour donner une vue concrète du système, voici ce qui se passe quand un client
+commande des vitres :
+\begin{enumerate}
+  \item Le responsable d'usine enregistre la commande dans la console ; le
+    serveur vérifie qu'il reste assez de matière première, puis déduit
+    automatiquement les quantités nécessaires du stock.
+  \item Le four, piloté par l'automate (simulé en C), chauffe le verre selon la
+    recette choisie ; les mesures (température par zone, pression de trempe,
+    vitesse de convoyeur) sont relevées en continu.
+  \item Un modèle d'apprentissage automatique (forêt d'isolement) surveille ces
+    mesures et signale tout écart par rapport au comportement normal du four.
+  \item Les mesures et les éventuelles alertes sont visibles en direct dans la
+    console, avec un diagnostic écrit en français.
+  \item Un opérateur peut interroger l'assistant technique pour obtenir le
+    rapport de production ou une explication de la norme EN~12150 ; l'assistant
+    n'a accès à aucune donnée financière ou personnelle des clients.
+  \item Toute action sensible (connexion, création d'un client, tentative
+    d'accès refusée, consigne bloquée) est inscrite dans un journal d'audit
+    scellé, consultable par l'auditeur sécurité.
+\end{enumerate}
+
+\chapter{Fonctionnalités}
+
+\section{Accueil}
+La page d'accueil résume en un coup d'œil ce qui concerne le rôle connecté :
+température du four, état du four selon l'analyse automatique, lot en cours,
+stocks à commander, commandes en cours, et pour les rôles concernés la note de
+conformité et le nombre d'attaques bloquées sur les dernières 24~heures.
+
+\screenshot{02_accueil.jpg}{0.92}{Page d'accueil, vue du responsable d'usine.}
+
+\section{Production}
+Cette page affiche la température du four en direct, zone par zone, avec une
+courbe qui change de couleur selon le diagnostic du modèle d'apprentissage
+automatique : bleu pour un fonctionnement normal, orange pour un écart à
+surveiller, rouge pour une anomalie. Les jauges de température et de pression de
+soufflage complètent la lecture.
+
+\screenshot{03_production.jpg}{0.92}{Suivi du four pendant un cycle de chauffe réel ; le modèle signale un écart entre zones.}
+
+\section{Stocks}
+Les six matières premières nécessaires à la fabrication (sable, carbonate de
+sodium, calcaire, calcin recyclé, revêtement bas-émissif, palettes) sont
+affichées avec leur niveau. Un stock passé sous son seuil de réapprovisionnement
+est signalé automatiquement.
+
+\screenshot{04_stocks.jpg}{0.92}{Page des stocks de matières premières.}
+
+\section{Commandes}
+Le responsable d'usine enregistre une commande en choisissant un client, une
+recette de verre et une quantité. Le serveur calcule la surface de verre, vérifie
+qu'il y a assez de matière, l'enregistre, puis déduit automatiquement les
+quantités consommées des stocks — le tout dans une seule opération qui annule
+tout en cas de problème.
+
+\screenshot{05_commandes.jpg}{0.92}{Prise de commande et historique des commandes récentes.}
+
+\section{Clients}
+Le fichier clients contient des données personnelles (nom du contact, e-mail,
+téléphone) chiffrées avant d'être écrites en base ; seule la raison sociale
+reste en clair pour permettre la recherche. L'accès en création est réservé au
+responsable d'usine.
+
+\screenshot{06_clients.jpg}{0.92}{Fichier clients et formulaire de création.}
+
+\section{Assistant technique}
+L'assistant répond aux questions sur la production et sur la norme EN~12150. Il
+est protégé par quatre barrières successives (filtrage de la question, réponses
+puisées dans une base documentaire fermée, génération contrainte, vérification
+des grandeurs physiques en sortie) qui l'empêchent de divulguer des informations
+internes ou d'accepter une instruction cachée dans la question de l'utilisateur.
+La capture ci-dessous montre une tentative réelle d'injection de prompt,
+bloquée par le filtre et consignée dans le journal de sécurité.
+
+\screenshot{07_assistant.jpg}{0.92}{L'assistant refuse une tentative d'injection de prompt en direct.}
+
+\section{Sécurité}
+Réservée aux rôles habilités, cette page regroupe la note de conformité (part
+des contrôles de sécurité qui sont en règle), le flux des tentatives bloquées
+qualifiées selon le référentiel international MITRE~ATT\&CK, et le schéma de
+circulation des données entre le réseau industriel et le réseau informatique.
+
+\screenshot{08_securite.jpg}{0.92}{Tableau de conformité et premières alertes de sécurité.}
+\screenshot{09_securite_reseau.jpg}{0.92}{Flux d'alertes qualifiées MITRE et schéma de circulation des données OT~$\rightarrow$~IT.}
+
+\section{Journal d'audit}
+Chaque action sensible est inscrite dans un journal chaîné par empreintes
+SHA-256 : chaque entrée contient l'empreinte de la précédente, ce qui rend toute
+modification rétroactive détectable. Un bouton recalcule la chaîne entière côté
+serveur pour en vérifier l'intégrité.
+
+\screenshot{10_audit.jpg}{0.92}{Journal d'audit et résultat de la vérification de la chaîne.}
+
+\chapter{Architecture et sécurité}
+
+\section{Le modèle de Purdue, du four au navigateur}
+Le système est organisé en zones de confiance croissante, conformément au
+modèle de Purdue utilisé en cybersécurité industrielle :
+
+\begin{center}
+\begin{tabular}{@{}cll@{}}
+\toprule
+\textbf{Niveau} & \textbf{Zone} & \textbf{Composant} \\
+\midrule
+0--1 & Terrain / automate & Automate du four (simulateur C, Modbus~TCP) \\
+2--3 & Supervision OT & Passerelle de collecte (lecture seule) \\
+3,5 & Zone intermédiaire & Diode de données (liaison à sens unique) \\
+4 & Informatique de gestion & API, base de données \\
+5 & Entreprise & Console web, assistant, journal d'audit \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le point central de cette architecture est la \textbf{diode de données} : la
+passerelle ne fait qu'émettre des trames UDP vers le système d'information, sans
+jamais recevoir de réponse. Il n'existe, techniquement, aucun chemin réseau pour
+qu'une commande venant du portail web atteigne l'automate. C'est ce qui a été
+vérifié en pratique (\cref{chap:resultats}).
+
+\section{Défense en profondeur}
+\begin{itemize}
+  \item \textbf{Identité} : mots de passe en Argon2id, jetons de session signés
+    et révocables, verrouillage après plusieurs échecs.
+  \item \textbf{Autorisation} : contrôle par rôle (RBAC) sur chaque route de
+    l'API, complété par des règles contextuelles (ABAC) refusant tout par
+    défaut.
+  \item \textbf{Confidentialité} : les données personnelles des clients sont
+    chiffrées au repos (AES-256-GCM) ; en cas de fuite de la base, elles restent
+    illisibles.
+  \item \textbf{Intégrité des mesures} : chaque trame envoyée par la passerelle
+    est scellée (empreinte SHA-256 et signature Ed25519) et numérotée pour
+    empêcher le rejeu.
+  \item \textbf{Assistant IA} : quatre barrières successives, détaillées au
+    \cref{chap:technique} du rapport technique.
+  \item \textbf{Traçabilité} : journal d'audit chaîné et immuable, y compris
+    pour les tentatives refusées.
+\end{itemize}
+
+\section{Ce que l'architecture ne couvre pas encore}
+Une attaque réseau directe sur l'automate (en contournant le portail web) n'est
+aujourd'hui pas détectée automatiquement : le flux d'alertes ne surveille que ce
+qui passe par l'application, pas le réseau industriel lui-même. Cette limite a
+été découverte pendant les tests d'intrusion (\cref{chap:resultats}) et n'a pas
+été dissimulée.
+
+\chapter{Démarche de développement}
+
+\section{Une progression par étapes}
+Le projet a été construit en sept étapes successives, chacune validée avant de
+passer à la suivante : fondations données et identité, simulation du réseau
+industriel, services métier et intelligence artificielle, interface web,
+supervision de sécurité, infrastructure, puis homologation documentaire. Cette
+progression a permis de ne jamais construire une couche sur des fondations non
+vérifiées.
+
+\section{Qualité et vérification continue}
+Chaque changement est passé par les mêmes portes de qualité, automatisées dans
+une intégration continue : vérification des types, analyse statique de
+sécurité, formatage, tests, audit des dépendances, construction des images
+Docker, génération d'un inventaire logiciel (SBOM) et signature des artefacts.
+Le détail chiffré figure au \cref{chap:resultats}.
+
+\section{Itérations sur l'interface}
+L'interface a connu plusieurs itérations de style avant sa version actuelle,
+chacune guidée par un retour direct sur l'usage : d'abord une console sombre
+très contrastée, jugée trop proche d'un jeu vidéo ; puis une version claire et
+sobre, jugée trop froide ; la version retenue reprend un principe de panneaux
+translucides sur fond clair, avec des transitions discrètes, un mode sombre qui
+suit la préférence du système, et une bascule complète français/anglais.
+
+\chapter{Résultats et vérification}
+\label{chap:resultats}
+
+\section{Ce qui a été mesuré}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Composant} & \textbf{Résultat} \\
+\midrule
+API et logique métier (Python) & 563 tests passés \\
+Interface web (TypeScript/React) & 122 tests passés \\
+Automate (C) & 22 tests unitaires, 763 cas de fuzzing, 0 fuite mémoire \\
+Passerelle de collecte (Python) & 20 tests passés \\
+Typage statique strict & 0 erreur \\
+Analyse de sécurité statique & 0 anomalie de sévérité moyenne ou haute \\
+Intégration continue & 7 étapes automatisées (test, sécurité, image, signature) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Une attaque réelle, pas un scénario écrit à l'avance}
+Pour vérifier que les protections tenaient vraiment, une attaque réseau a été
+menée directement contre l'automate simulé, sans passer par le portail web, à
+l'aide d'un outil de test d'intrusion dédié au projet :
+\begin{enumerate}
+  \item Une consigne de température absurde (900\textdegree{}C) a été
+    \textbf{refusée par l'automate lui-même}, avec un code d'erreur réseau
+    normal — ce n'est pas un texte préécrit, c'est une limite programmée dans
+    son micrologiciel.
+  \item Une consigne dans les bornes légales mais dangereuse (750\textdegree{}C
+    sur deux zones sur quatre) a été \textbf{acceptée}. Le four a réellement
+    chauffé au-delà de la plage de sécurité affichée (620--730\textdegree{}C),
+    et le modèle d'apprentissage automatique a détecté l'écart \textbf{sans
+    aucune aide}, en continu.
+  \item Un arrêt d'urgence envoyé par le réseau a coupé le chauffage, mais il
+    s'est avéré \textbf{impossible de le lever à distance} : comme sur une
+    machine réelle, seule une intervention physique le permet.
+\end{enumerate}
+Cette expérience a aussi révélé la limite citée au chapitre précédent : cette
+attaque-là, menée directement sur le réseau industriel, n'apparaît pas dans le
+flux d'alertes de la console, faute de sonde sur ce réseau.
+
+\chapter{Difficultés rencontrées}
+
+\section{Collisions entre styles et objectifs}
+Le principal défi n'a pas été technique mais une tension d'objectifs : rendre
+l'interface à la fois sobre (pour un utilisateur professionnel de cinquante
+ans), vivante (pour ne pas paraître austère) et parfaitement lisible sans
+jamais verser dans l'esthétique « jeu vidéo ». Plusieurs itérations complètes de
+la feuille de style ont été nécessaires avant de trouver un équilibre jugé
+satisfaisant.
+
+\section{Du CSS hérité qui reprenait la main}
+Un bogue d'affichage (menu qui redevenait horizontal, barre du haut qui
+débordait) provenait de règles CSS héritées d'une version antérieure du thème,
+toujours actives sur certaines largeurs d'écran bien qu'invisibles au premier
+regard. La cause a été trouvée en comparant le comportement calculé par le
+navigateur à la cascade de règles réellement appliquées, plutôt qu'en devinant.
+
+\section{Un modèle trop prudent}
+Le détecteur d'anomalies a d'abord signalé presque toutes les mesures comme
+suspectes : il n'avait jamais vu de montée en température ni de four à l'arrêt
+dans ses données d'entraînement. Le jeu d'entraînement a été enrichi pour
+couvrir ces régimes de fonctionnement normaux, ramenant le taux de fausses
+alertes à un niveau acceptable sans perdre la détection des pannes réelles.
+
+\chapter{Conclusion et perspectives}
+
+SecuriGlass Factory~OS démontre, sur un cas industriel concret, qu'il est
+possible de relier un procédé physique critique à une console web moderne sans
+sacrifier la séparation stricte entre réseau industriel et réseau
+informatique — et que cette séparation se vérifie par l'expérience, pas
+seulement sur le papier. Le projet reste une preuve de concept~: certaines
+protections citées dans la documentation technique sont volontairement
+marquées comme planifiées, et l'homologation n'a pas été prononcée.
+
+Les suites naturelles du projet sont, par ordre de priorité~: ajouter une
+détection des attaques réseau directes sur l'automate (constatée manquante
+pendant les tests), faire tourner la chaîne de bout en bout sur un système
+Linux pour exécuter les tests aujourd'hui ignorés faute d'outillage macOS, puis
+traiter les mesures marquées « planifiées » dans le dossier d'architecture.
+
+\end{document}

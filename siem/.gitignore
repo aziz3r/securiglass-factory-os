@@ -1,0 +1,25 @@
+# Secrets et artefacts generes localement - ne jamais commiter
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Certificats et cles prives generes par scripts/generate-certs.sh
+wazuh/certs/*.pem
+wazuh/certs/*.key
+wazuh/certs/*.csr
+
+# Configuration derivee contenant des hashes / secrets
+wazuh/config/indexer/internal_users.yml
+wazuh/config/dashboard/wazuh.yml
+
+# Journaux d'execution (peuvent contenir des donnees sensibles)
+logs/*.jsonl
+logs/*.log
+redteam/logs/*.jsonl
+redteam/incidents/*.local.csv
+
+# Archives de collecte
+*.pcap
+*.pcapng

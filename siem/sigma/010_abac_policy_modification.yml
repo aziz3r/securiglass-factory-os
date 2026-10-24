@@ -1,0 +1,45 @@
+title: Modification d'une politique ABAC
+id: 886ffa42-3c1e-4671-bf6a-3ec62fff42b7
+status: experimental
+description: >
+  Detection d'une modification de politique ABAC, que ce soit via l'API
+  applicative (ABAC_POLICY_CREATED/UPDATED/DELETED) ou directement en base
+  (pgAudit : INSERT/UPDATE/DELETE/ALTER sur sec_data.abac_policies). Une
+  politique ABAC modifiee peut ouvrir un acces hors sous-reseau, hors horaires
+  ou accepter un certificat revoque : c'est une cible de premier choix pour un
+  attaquant qui cherche a persister.
+references:
+  - https://attack.mitre.org/techniques/T1098/
+  - https://attack.mitre.org/techniques/T0859/
+  - https://www.iec.ch/62443
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.defense_evasion
+  - attack.t1098
+  - attack.t0859
+  - ics.iec62443-3-3.sr2.1
+logsource:
+  product: postgresql
+  service: pgaudit
+detection:
+  selection:
+    pgaudit_object_name|endswith: abac_policies
+    pgaudit_command:
+      - INSERT
+      - UPDATE
+      - DELETE
+      - TRUNCATE
+      - ALTER
+  condition: selection
+fields:
+  - pgaudit_command
+  - pgaudit_object_name
+  - pgaudit_statement_id
+  - pgaudit_type
+falsepositives:
+  - Deploiement planifie d'une nouvelle politique ABAC par l'equipe IAM (fenetre de changement).
+  - Migration Alembic appliquant un seed de politiques en environnement de recette.
+level: critical

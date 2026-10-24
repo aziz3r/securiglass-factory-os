@@ -1,0 +1,10 @@
+# Outils de validation et Red Team du PoC SecuriGlass (environnement local)
+# Installation : python3.12 -m venv siem/.venv && siem/.venv/bin/pip install -r siem/requirements-tools.txt
+PyYAML>=6.0,<7.0
+pytest>=8.0,<10.0
+pytest-asyncio>=0.23,<2.0
+scapy>=2.5,<3.0
+pySigma>=1.0,<2.0
+pysigma-backend-splunk>=1.0,<3.0
+yara-python>=4.3,<5.0
+bcrypt>=4.0,<6.0

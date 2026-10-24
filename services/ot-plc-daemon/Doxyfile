@@ -1,0 +1,14 @@
+PROJECT_NAME           = "SecuriGlass OT PLC Daemon"
+PROJECT_NUMBER         = "2.0.0"
+PROJECT_BRIEF          = "Simulation automate temps réel (Four de trempe & Modbus TCP)"
+OUTPUT_DIRECTORY       = docs/doxygen
+INPUT                  = include src
+RECURSIVE              = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+GENERATE_LATEX         = NO
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+OPTIMIZE_OUTPUT_FOR_C  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES

@@ -1,0 +1,31 @@
+---
+# =============================================================================
+# Metadonnees du role cis_linux
+# =============================================================================
+galaxy_info:
+  role_name: cis_linux
+  author: SecuriGlass DevSecOps
+  description: >-
+    Durcissement CIS Linux (SSH, sysctl, auditd, journald, permissions,
+    services, umask, bannieres) pour les hotes SecuriGlass Factory OS.
+  license: proprietary
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - bullseye
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: EL
+      versions:
+        - "9"
+  galaxy_tags:
+    - security
+    - hardening
+    - cis
+    - iec62443
+
+dependencies: []

@@ -1,0 +1,26 @@
+---
+# =============================================================================
+# CIS 1.x - paquets minimaux necessaires au durcissement
+# =============================================================================
+
+- name: "CIS 1.1 - installer auditd et openssh-server (Debian)"
+  ansible.builtin.apt:
+    name:
+      - auditd
+      - openssh-server
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    install_recommends: false
+  when: ansible_os_family == "Debian"
+  tags: [packages]
+
+- name: "CIS 1.1 - installer audit et openssh-server (RedHat)"
+  ansible.builtin.dnf:
+    name:
+      - audit
+      - openssh-server
+    state: present
+    install_weak_deps: false
+  when: ansible_os_family == "RedHat"
+  tags: [packages]

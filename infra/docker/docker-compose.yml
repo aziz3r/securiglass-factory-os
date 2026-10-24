@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  securiglass-db:
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    container_name: securiglass-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: securiglass_db
+      POSTGRES_USER: securiglass_admin
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:-SecuriGlass_Admin_2026!MasterKey}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../../database/schemas/01_init_extensions.sql:/docker-entrypoint-initdb.d/01_init_extensions.sql:ro
+      - ../../database/schemas/02_ot_data_schema.sql:/docker-entrypoint-initdb.d/02_ot_data_schema.sql:ro
+      - ../../database/schemas/03_it_data_schema.sql:/docker-entrypoint-initdb.d/03_it_data_schema.sql:ro
+      - ../../database/schemas/04_sec_data_schema.sql:/docker-entrypoint-initdb.d/04_sec_data_schema.sql:ro
+      - ../../database/schemas/05_rbac_abac_grants.sql:/docker-entrypoint-initdb.d/05_rbac_abac_grants.sql:ro
+      - ../../database/schemas/06_factory_extension.sql:/docker-entrypoint-initdb.d/06_factory_extension.sql:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securiglass_admin -d securiglass_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+    driver: local

@@ -1,0 +1,25 @@
+---
+# ============================================================================
+# SecuriGlass Factory OS - Utilisateurs internes Wazuh Indexer (MODELE)
+# ----------------------------------------------------------------------------
+# NE PAS EDITER DIRECTEMENT : `scripts/bootstrap.sh` genere
+# `internal_users.yml` a partir de ce modele, avec des hashes bcrypt issus
+# des mots de passe de `siem/.env`. Le fichier genere est ignore par git.
+#
+# Les hashes sont des bcrypt (cout 12). Aucun mot de passe en clair ici.
+# ============================================================================
+_meta:
+  type: "internalusers"
+  config_version: 2
+
+admin:
+  hash: "__ADMIN_PASSWORD_HASH__"
+  reserved: true
+  backend_roles:
+    - "admin"
+  description: "Administrateur SOC (compte technique, usage humain limite)"
+
+kibanaserver:
+  hash: "__DASHBOARD_PASSWORD_HASH__"
+  reserved: true
+  description: "Compte de service du dashboard Wazuh (lecture index)"

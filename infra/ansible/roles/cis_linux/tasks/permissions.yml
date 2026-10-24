@@ -1,0 +1,49 @@
+---
+# =============================================================================
+# CIS 6.x - permissions des fichiers sensibles et politique de comptes
+# =============================================================================
+
+- name: "CIS 6.1.2 - restreindre les permissions des fichiers sensibles"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop: "{{ cis_sensitive_files }}"
+  when: item.path is exists
+  tags: [permissions]
+
+- name: "CIS 6.1.3 - restreindre les repertoires cron"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop: "{{ cis_cron_directories }}"
+  when: item is exists
+  tags: [permissions]
+
+- name: "CIS 6.1.4 - restreindre /etc/cron.allow et /etc/at.allow"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+  loop:
+    - /etc/cron.allow
+    - /etc/at.allow
+  tags: [permissions]
+
+- name: "CIS 5.4.1 - politique de mots de passe dans /etc/login.defs"
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: "^{{ item.key }}\\s+"
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+    create: false
+  loop: "{{ cis_login_defs | dict2items }}"
+  tags: [permissions]

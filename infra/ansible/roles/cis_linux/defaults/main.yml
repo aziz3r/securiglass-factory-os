@@ -1,0 +1,167 @@
+---
+# =============================================================================
+# Role cis_linux - valeurs par defaut
+# Toutes les valeurs sont surchargeables (group_vars, host_vars, -e).
+# =============================================================================
+
+# --- SSH --------------------------------------------------------------------
+cis_ssh_port: 22
+cis_ssh_permit_root_login: "no"
+cis_ssh_password_authentication: "no"
+cis_ssh_pubkey_authentication: "yes"
+cis_ssh_permit_empty_passwords: "no"
+cis_ssh_max_auth_tries: 3
+cis_ssh_login_grace_time: 60
+cis_ssh_client_alive_interval: 300
+cis_ssh_client_alive_count_max: 3
+cis_ssh_max_sessions: 10
+cis_ssh_max_startups: "10:30:60"
+cis_ssh_allow_tcp_forwarding: "no"
+cis_ssh_allow_agent_forwarding: "no"
+cis_ssh_x11_forwarding: "no"
+cis_ssh_use_dns: "no"
+cis_ssh_log_level: "VERBOSE"
+cis_ssh_banner: "/etc/issue.net"
+cis_ssh_kex_algorithms:
+  - curve25519-sha256
+  - curve25519-sha256@libssh.org
+  - diffie-hellman-group16-sha512
+  - diffie-hellman-group18-sha512
+cis_ssh_ciphers:
+  - chacha20-poly1305@openssh.com
+  - aes256-gcm@openssh.com
+  - aes128-gcm@openssh.com
+  - aes256-ctr
+cis_ssh_macs:
+  - hmac-sha2-512-etm@openssh.com
+  - hmac-sha2-256-etm@openssh.com
+  - umac-128-etm@openssh.com
+
+# --- Emplacements specifiques a la distribution ----------------------------
+cis_sshd_binary: /usr/sbin/sshd
+cis_sshd_sftp_subsystem: >-
+  {{ '/usr/libexec/openssh/sftp-server' if ansible_os_family == 'RedHat'
+     else '/usr/lib/openssh/sftp-server' }}
+
+# --- Systeme / reseau (CIS) -------------------------------------------------
+cis_sysctl_settings:
+  # Reseau IPv4
+  net.ipv4.ip_forward: "0"
+  net.ipv4.conf.all.send_redirects: "0"
+  net.ipv4.conf.default.send_redirects: "0"
+  net.ipv4.conf.all.accept_source_route: "0"
+  net.ipv4.conf.default.accept_source_route: "0"
+  net.ipv4.conf.all.accept_redirects: "0"
+  net.ipv4.conf.default.accept_redirects: "0"
+  net.ipv4.conf.all.secure_redirects: "0"
+  net.ipv4.conf.default.secure_redirects: "0"
+  net.ipv4.conf.all.log_martians: "1"
+  net.ipv4.conf.default.log_martians: "1"
+  net.ipv4.icmp_echo_ignore_broadcasts: "1"
+  net.ipv4.icmp_ignore_bogus_error_responses: "1"
+  net.ipv4.conf.all.rp_filter: "1"
+  net.ipv4.conf.default.rp_filter: "1"
+  net.ipv4.tcp_syncookies: "1"
+  net.ipv4.tcp_timestamps: "0"
+  net.ipv4.conf.all.arp_ignore: "1"
+  net.ipv4.conf.all.arp_announce: "2"
+  # Reseau IPv6 (si IPv6 est conserve ; ne desactive pas la pile)
+  net.ipv6.conf.all.accept_ra: "0"
+  net.ipv6.conf.default.accept_ra: "0"
+  net.ipv6.conf.all.accept_redirects: "0"
+  net.ipv6.conf.default.accept_redirects: "0"
+  # Noyau
+  kernel.kptr_restrict: "2"
+  kernel.dmesg_restrict: "1"
+  kernel.randomize_va_space: "2"
+  kernel.yama.ptrace_scope: "1"
+  kernel.unprivileged_bpf_disabled: "1"
+  kernel.perf_event_paranoid: "3"
+  kernel.sysrq: "0"
+  # Systeme de fichiers
+  fs.protected_hardlinks: "1"
+  fs.protected_symlinks: "1"
+  fs.suid_dumpable: "0"
+  fs.protected_fifos: "2"
+  fs.protected_regular: "2"
+
+# --- auditd ------------------------------------------------------------------
+cis_auditd_package: >-
+  {{ 'audit' if ansible_os_family == 'RedHat' else 'auditd' }}
+cis_auditd_rules_path: /etc/audit/rules.d/99-securiglass.rules
+cis_auditd_backlog_limit: 8192
+
+# --- journald ----------------------------------------------------------------
+cis_journald_storage: persistent
+cis_journald_system_max_use: 1G
+cis_journald_system_keep_free: 512M
+cis_journald_max_retention: 90d
+cis_journald_compress: "yes"
+cis_journald_seal: "yes"
+
+# --- Comptes / permissions ---------------------------------------------------
+cis_umask: "027"
+cis_login_defs:
+  UMASK: "027"
+  PASS_MAX_DAYS: "365"
+  PASS_MIN_DAYS: "1"
+  PASS_WARN_AGE: "14"
+  ENCRYPT_METHOD: "SHA512"
+
+cis_sensitive_files:
+  - path: /etc/passwd
+    mode: "0644"
+  - path: /etc/group
+    mode: "0644"
+  - path: /etc/shadow
+    mode: "0600"
+  - path: /etc/gshadow
+    mode: "0600"
+  - path: /etc/passwd-
+    mode: "0644"
+  - path: /etc/group-
+    mode: "0644"
+  - path: /etc/shadow-
+    mode: "0600"
+  - path: /etc/gshadow-
+    mode: "0600"
+  - path: /etc/crontab
+    mode: "0600"
+  - path: /etc/ssh/sshd_config
+    mode: "0600"
+
+cis_cron_directories:
+  - /etc/cron.hourly
+  - /etc/cron.daily
+  - /etc/cron.weekly
+  - /etc/cron.monthly
+  - /etc/cron.d
+
+# --- Services inutiles a desactiver (s'ils sont installes) -------------------
+cis_disabled_services:
+  - avahi-daemon
+  - bluetooth
+  - cups
+  - rpcbind
+  - nfs-server
+  - rsh.socket
+  - rlogin.socket
+  - rexec.socket
+  - telnet.socket
+  - tftp.socket
+  - vsftpd
+  - squid
+  - snmpd
+  - httpd
+  - nginx
+  - postfix
+  - dovecot
+
+# --- Banniere ----------------------------------------------------------------
+cis_banner_text: |
+  *******************************************************************************
+  *  SecuriGlass Factory OS - Systeme industriel protege (IEC 62443)            *
+  *  Acces strictement reserve aux personnes autorisees.                        *
+  *  Toute connexion est journalisee, tracee et peut faire l'objet d'un audit.  *
+  *  Toute tentative d'acces non autorisee sera poursuivie.                     *
+  *******************************************************************************

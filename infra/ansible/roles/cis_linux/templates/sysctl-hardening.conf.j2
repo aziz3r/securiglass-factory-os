@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# =============================================================================
+# SecuriGlass Factory OS - durcissement noyau / reseau (CIS 3.x)
+# Applique par `sysctl --system` (handler Ansible).
+# =============================================================================
+{% for key, value in cis_sysctl_settings.items() | sort %}
+{{ key }} = {{ value }}
+{% endfor %}

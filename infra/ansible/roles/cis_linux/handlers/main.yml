@@ -1,0 +1,37 @@
+---
+# =============================================================================
+# Handlers du role cis_linux
+# =============================================================================
+
+- name: Redemarrer sshd
+  ansible.builtin.service:
+    name: sshd
+    state: restarted
+  listen: Redemarrer sshd
+
+- name: Recharger sysctl
+  ansible.builtin.command: sysctl --system
+  changed_when: true
+  listen: Recharger sysctl
+
+- name: Recharger les regles auditd
+  ansible.builtin.command: augenrules --load
+  changed_when: true
+  listen: Recharger les regles auditd
+
+- name: Redemarrer auditd
+  ansible.builtin.service:
+    name: auditd
+    state: restarted
+  listen: Redemarrer auditd
+
+- name: Redemarrer systemd-journald
+  ansible.builtin.service:
+    name: systemd-journald
+    state: restarted
+  listen: Redemarrer systemd-journald
+
+- name: Recharger systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  listen: Recharger systemd

@@ -1,0 +1,68 @@
+
+!.env.example
+# C / Binaries
+# Coverage & test reports
+# Docker / Postgres data
+# Identifiants de démonstration locaux (jamais commités)
+# Node / React
+# OS
+# Python
+# Secrets & Environment
+# Terraform
+*$py.class
+*.app
+*.crt
+*.egg
+*.egg-info/
+*.key
+*.lcov
+*.o
+*.out
+*.pem
+*.py[cod]
+*.so
+*.tfstate
+*.tfstate.*
+.DS_Store
+.Python
+.coverage
+.dev-credentials.json
+.dev-env
+.dev-run/
+.eggs/
+.env
+.env.*
+.installed.cfg
+.mypy_cache/
+.pnpm-debug.log*
+.pytest_cache/
+.terraform/
+.venv/
+Thumbs.db
+__pycache__/
+build/
+coverage/
+crash.log
+develop-eggs/
+dist/
+downloads/
+eggs/
+env/
+htmlcov/
+lib/
+lib64/
+node_modules/
+npm-debug.log*
+parts/
+pgdata/
+sdist/
+services/ot-plc-daemon/bin/
+services/ot-plc-daemon/build/
+var/
+wheels/
+yarn-debug.log*
+yarn-error.log*
+redteam/logs/*.jsonl
+siem/.venv/
+.vscode/
+.idea/

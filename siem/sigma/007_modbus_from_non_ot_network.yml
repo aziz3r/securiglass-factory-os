@@ -1,0 +1,46 @@
+title: Connexion Modbus TCP depuis un reseau non-OT
+id: 5d770a80-0318-4907-a54a-7cb6894e165e
+status: experimental
+description: >
+  Detection d'une connexion Modbus/TCP vers le port 5020 dont la source n'est
+  pas le sous-reseau de la passerelle edge OT (10.10.30.0/24). Les postes de la
+  salle de controle (10.10.20.0/24), la DMZ et les postes IT ne doivent jamais
+  parler Modbus directement aux automates : toute connexion de ce type est un
+  signe de pivot, de mauvaise segmentation ou d'outil de diagnostic non maitrise.
+references:
+  - https://attack.mitre.org/techniques/T0886/
+  - https://attack.mitre.org/techniques/T0840/
+  - https://attack.mitre.org/techniques/T0885/
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.initial_access
+  - attack.lateral_movement
+  - attack.discovery
+  - attack.t0886
+  - attack.t0840
+  - attack.t0885
+logsource:
+  product: suricata
+  service: eve
+detection:
+  selection:
+    event_type:
+      - modbus
+      - flow
+    dest_port: 5020
+  ot_network:
+    # Prefixe du reseau gateway OT 10.10.30.0/24 (equivalent CIDR portable)
+    src_ip|startswith: "10.10.30."
+  condition: selection and not ot_network
+fields:
+  - src_ip
+  - dest_ip
+  - dest_port
+  - proto
+  - modbus.function_code
+  - modbus.unit_id
+falsepositives:
+  - Outil de diagnostic constructeur utilise depuis un poste de maintenance non inventorie (a faire regulariser).
+  - Mauvaise configuration temporaire d'une passerelle ou d'un routeur inter-zone.
+level: high

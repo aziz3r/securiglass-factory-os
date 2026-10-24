@@ -1,0 +1,14 @@
+---
+# =============================================================================
+# CIS 3.x - parametres noyau / reseau
+# =============================================================================
+
+- name: "CIS 3.1 - deployer /etc/sysctl.d/99-securiglass-hardening.conf"
+  ansible.builtin.template:
+    src: sysctl-hardening.conf.j2
+    dest: /etc/sysctl.d/99-securiglass-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger sysctl
+  tags: [sysctl]

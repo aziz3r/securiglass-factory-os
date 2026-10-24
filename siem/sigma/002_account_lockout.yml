@@ -1,0 +1,36 @@
+title: Verrouillage de compte apres echecs repetes
+id: 6de985ec-67f3-4483-aa85-1dfca3654271
+status: experimental
+description: >
+  Detection du verrouillage d'un compte SecuriGlass par le mecanisme
+  anti-bruteforce (5 echecs consecutifs, verrouillage temporaire de 15 min).
+  L'evenement AUTH_LOGIN porte details.reason = account_locked (tentative sur
+  un compte deja verrouille) ou account_locked_max_failures (seuil atteint).
+references:
+  - https://attack.mitre.org/techniques/T1110/
+  - https://attack.mitre.org/techniques/T0859/
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.credential_access
+  - attack.persistence
+  - attack.t1110
+  - attack.t0859
+logsource:
+  product: securiglass
+  service: audit
+detection:
+  selection:
+    event_type: AUTH_LOGIN
+    details.reason|startswith: account_locked
+  condition: selection
+fields:
+  - actor_username
+  - actor_ip
+  - outcome
+  - details.reason
+  - details.remaining_seconds
+falsepositives:
+  - Un operateur qui saisit plusieurs fois un mot de passe errone apres un changement de mot de passe.
+  - Un compte de service mal configure qui retente son authentification.
+level: medium

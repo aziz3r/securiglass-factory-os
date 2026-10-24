@@ -1,0 +1,41 @@
+title: Ecriture de procede OT hors plage horaire
+id: 9e60dd46-a590-4c32-b290-1e7a6c003010
+status: experimental
+description: >
+  Detection d'une ecriture de consigne sur le procede verrier en dehors de la
+  plage autorisee 05:45-22:15 (heure Europe/Paris). L'evenement OT_PROCESS_WRITE
+  est emis par la passerelle edge et porte outside_schedule=true lorsque
+  l'horodatage de l'ordre sort de la plage. Une ecriture hors plage peut
+  modifier les rampes de trempe, la pression de trempe ou la vitesse du convoyeur.
+references:
+  - https://attack.mitre.org/techniques/T0836/
+  - https://attack.mitre.org/techniques/T0831/
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.impair_process_control
+  - attack.impact
+  - attack.t0836
+  - attack.t0831
+  - ics.iec62443-3-3.sr3.2
+logsource:
+  product: securiglass
+  service: ot-gateway
+detection:
+  selection:
+    event_type: OT_PROCESS_WRITE
+    outside_schedule: true
+  condition: selection
+fields:
+  - actor_username
+  - actor_ip
+  - source_zone
+  - target_plc
+  - register_address
+  - old_value
+  - new_value
+  - outside_schedule
+falsepositives:
+  - Intervention de maintenance planifiee et autorisee par un changement de production.
+  - Redemarrage exceptionnel d'un four avec consignes de securite validees par le directeur d'usine.
+level: high

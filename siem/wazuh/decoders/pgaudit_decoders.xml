@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==========================================================================
+  Decodeurs pgAudit (PostgreSQL 16)
+  ==========================================================================
+  Format d'une ligne (pgaudit.log = 'role, ddl, write, function') :
+    2026-10-24 18:00:00.123 UTC [123] user@db LOG:  AUDIT: SESSION,1,1,WRITE,INSERT,TABLE,sec_data.abac_policies,"INSERT ...",<none>
+  Champs extraits (ordre des groupes de capture) :
+    pgaudit_type, pgaudit_statement_id, pgaudit_substatement_id,
+    pgaudit_class, pgaudit_command, pgaudit_object_type, pgaudit_object_name
+  ==========================================================================
+-->
+<decoder_list>
+
+  <!-- Ligne brute sans en-tete syslog -->
+  <decoder name="pgaudit">
+    <prematch>AUDIT: </prematch>
+    <regex offset="after_prematch">^(\w+),(\d+),(\d+),(\w+),(\w+),(\w+),([^,]+),</regex>
+    <order>pgaudit_type, pgaudit_statement_id, pgaudit_substatement_id, pgaudit_class, pgaudit_command, pgaudit_object_type, pgaudit_object_name</order>
+  </decoder>
+
+  <!-- Ligne PostgreSQL complete (en-tete de log avant AUDIT) -->
+  <decoder name="pgaudit-postgres">
+    <prematch>LOG:  AUDIT: </prematch>
+    <regex offset="after_prematch">^(\w+),(\d+),(\d+),(\w+),(\w+),(\w+),([^,]+),</regex>
+    <order>pgaudit_type, pgaudit_statement_id, pgaudit_substatement_id, pgaudit_class, pgaudit_command, pgaudit_object_type, pgaudit_object_name</order>
+  </decoder>
+
+</decoder_list>

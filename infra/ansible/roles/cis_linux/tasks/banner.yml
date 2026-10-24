@@ -1,0 +1,17 @@
+---
+# =============================================================================
+# CIS 1.7 - bannieres legales de connexion
+# =============================================================================
+
+- name: "CIS 1.7.1 - deployer /etc/issue, /etc/issue.net et /etc/motd"
+  ansible.builtin.template:
+    src: banniere.j2
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - /etc/issue
+    - /etc/issue.net
+    - /etc/motd
+  tags: [banner]

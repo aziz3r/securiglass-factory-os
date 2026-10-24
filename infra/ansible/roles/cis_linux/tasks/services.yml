@@ -1,0 +1,24 @@
+---
+# =============================================================================
+# CIS 2.x - desactivation des services et sockets inutiles
+# =============================================================================
+# Les services absents sont ignores. `failed_when: false` est volontaire : un
+# service masque ou absent ne doit pas faire echouer le durcissement, mais
+# l'echec reste visible dans le recap Ansible (changed/failed).
+# =============================================================================
+
+- name: "CIS 2.1 - collecter l'etat des services"
+  ansible.builtin.service_facts:
+  tags: [services]
+
+- name: "CIS 2.2 - desactiver et arreter les services inutiles"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop: "{{ cis_disabled_services }}"
+  when:
+    - not ansible_check_mode
+    - (item in ansible_facts.services) or ((item ~ '.service') in ansible_facts.services) or ((item ~ '.socket') in ansible_facts.services)
+  failed_when: false
+  tags: [services]

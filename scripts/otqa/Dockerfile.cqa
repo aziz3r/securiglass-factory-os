@@ -1,0 +1,12 @@
+# Chaîne d'outils QA mémoire pour le démon PLC (Linux uniquement).
+# macOS n'embarque pas Valgrind : l'analyse mémoire s'exécute dans ce conteneur.
+FROM gcc:13-bookworm
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        gcc make libc6-dev valgrind doxygen graphviz ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --uid 10001 qa
+WORKDIR /src
+USER qa

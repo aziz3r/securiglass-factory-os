@@ -1,0 +1,45 @@
+# =============================================================================
+# SecuriGlass Factory OS - Configuration Trivy
+# =============================================================================
+# Utilisee par la CI :
+#   trivy image --config security/trivy.yaml ...
+#   trivy config --config security/trivy.yaml security/docker
+#
+# Politique : seules les vulnerabilites CRITICAL et HIGH bloquent, y compris
+# lorsqu'aucun correctif n'est disponible (ignore-unfixed=false), afin de ne pas
+# masquer une dette de securite sur une chaine industrielle.
+# =============================================================================
+
+scan:
+  # Analyse des vulnerabilites, secrets embarques et mauvaises configurations.
+  scanners:
+    - vuln
+    - secret
+    - misconfig
+
+severity:
+  - CRITICAL
+  - HIGH
+
+# Ne pas ignorer les vulnerabilites sans correctif : elles restent visibles.
+ignore-unfixed: false
+
+format: table
+exit-code: 1
+
+vulnerability:
+  # Type de paquets analyses : OS + bibliotheques applicatives (Python/Node).
+  type:
+    - os
+    - library
+
+secret:
+  # Les faux positifs connus se traitent par .trivyignore, jamais par baisse de
+  # severite globale.
+  config:
+    # Ne pas inclure les fichiers de test dans le scan de secrets de la CI.
+    skip-files: []
+
+misconfiguration:
+  # Inclure les Dockerfiles, Terraform, Ansible, YAML et Kubernetes.
+  include-non-failures: false

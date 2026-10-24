@@ -1,0 +1,39 @@
+title: Rupture de la chaine d'audit SHA-256 SecuriGlass
+id: ec3a3d30-9052-412a-a1da-68380a09bf9c
+status: experimental
+description: >
+  Detection d'un echec de verification de la chaine d'audit immuable
+  sec_data.audit_logs (evenement AUDIT_CHAIN_INTEGRITY_CHECK en echec).
+  Une rupture de maillon ou un hash recalcule invalide indique une alteration,
+  une suppression ou une restauration partielle de la piste d'audit.
+references:
+  - https://attack.mitre.org/techniques/T0872/
+  - https://www.iec.ch/62443
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.defense_evasion
+  - attack.t0872
+  - ics.iec62443-3-3.sr2.1
+logsource:
+  product: securiglass
+  service: audit
+detection:
+  selection:
+    event_type: AUDIT_CHAIN_INTEGRITY_CHECK
+    outcome:
+      - FAILURE
+      - DENIED
+      - ERROR
+  condition: selection
+fields:
+  - actor_username
+  - actor_ip
+  - resource
+  - details.broken_record_id
+  - details.expected_prev_hash
+  - details.actual_prev_hash
+falsepositives:
+  - Restauration volontaire d'une sauvegarde partielle du journal d'audit (procedure de disaster recovery).
+  - Migration de base ayant reecrit les horodatages (doit rester exceptionnel et documente).
+level: critical

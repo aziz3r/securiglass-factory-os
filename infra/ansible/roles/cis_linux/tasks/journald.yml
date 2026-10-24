@@ -1,0 +1,34 @@
+---
+# =============================================================================
+# CIS 4.2 - journald : persistance, compression, scellement (FSS)
+# =============================================================================
+
+- name: "CIS 4.2.1 - creer /var/log/journal (persistance)"
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+  notify: Redemarrer systemd-journald
+  tags: [journald]
+
+- name: "CIS 4.2.2 - deployer la configuration journald durcie"
+  ansible.builtin.template:
+    src: journald-hardening.conf.j2
+    dest: /etc/systemd/journald.conf.d/99-securiglass-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Redemarrer systemd-journald
+  tags: [journald]
+
+- name: "CIS 4.2.3 - verifier la configuration effective de journald"
+  ansible.builtin.command: systemd-analyze cat-config systemd/journald.conf
+  register: cis_journald_effective
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+  failed_when: false
+  no_log: "{{ cis_no_log }}"
+  tags: [journald]

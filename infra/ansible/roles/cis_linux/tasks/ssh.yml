@@ -1,0 +1,29 @@
+---
+# =============================================================================
+# CIS 5.2 - configuration du service SSH
+# =============================================================================
+# Le template est valide par `sshd -t` AVANT d'etre installe (validate) : une
+# configuration invalide n'est jamais ecrite et ne peut pas couper l'acces.
+# Une sauvegarde horodatee est conservee (backup).
+# =============================================================================
+
+- name: "CIS 5.2.1 - deployer /etc/ssh/sshd_config durci"
+  ansible.builtin.template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: "0600"
+    backup: true
+    validate: "{{ cis_sshd_binary }} -t -f %s"
+  notify: Redemarrer sshd
+  tags: [ssh]
+
+- name: "CIS 5.2.2 - verifier la configuration SSH effective (sshd -T)"
+  ansible.builtin.command: "{{ cis_sshd_binary }} -T"
+  register: cis_sshd_check
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+  no_log: "{{ cis_no_log }}"
+  tags: [ssh]

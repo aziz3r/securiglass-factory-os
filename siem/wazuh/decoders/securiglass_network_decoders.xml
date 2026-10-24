@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==========================================================================
+  Decodeurs reseau OT (optionnels)
+  ==========================================================================
+  - Suricata EVE JSON : collecte avec `<log_format>json</log_format>` ;
+    le decodeur JSON natif de Wazuh aplatit les objets (`modbus.function_code`,
+    `modbus.unit_id`, ...). Aucun decodage supplementaire n'est necessaire.
+  - Ce fichier fournit un decodeur de repli pour les passerelles qui emettent
+    une ligne texte normalisee du type :
+      MODBUS src=10.10.20.15 dst=10.10.30.10:5020 fc=6 unit=1 len=6 outside_schedule=false
+  ==========================================================================
+-->
+<decoder_list>
+
+  <!-- Passerelle OT : ligne texte normalisee (repli si pas de JSON) -->
+  <decoder name="ot-modbus-text">
+    <prematch>^MODBUS </prematch>
+    <regex>^MODBUS src=(\S+) dst=(\S+):(\d+) fc=(\d+) unit=(\d+) len=(\d+) outside_schedule=(\S+)$</regex>
+    <order>src_ip, dst_ip, dest_port, modbus_function, modbus_unit, modbus_length, outside_schedule</order>
+  </decoder>
+
+</decoder_list>

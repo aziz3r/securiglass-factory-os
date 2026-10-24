@@ -1,0 +1,37 @@
+title: Force brute sur l'authentification SecuriGlass
+id: b66f91bf-0910-4e1c-81cc-262c2f23f421
+status: experimental
+description: >
+  Detection d'une force brute sur le point d'authentification /api/v1/auth/login.
+  Le backend journalise details.attempt_count, compteur d'echecs consecutifs
+  par compte (remis a zero apres succes). Un seuil >= 4 signale une force brute
+  en cours ; le verrouillage intervient a 5 echecs (regle 002). La correlation
+  multi-comptes / multi-IP est assuree cote Wazuh par la regle de frequence 100110.
+references:
+  - https://attack.mitre.org/techniques/T1110/001/
+  - https://www.iec.ch/62443
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.credential_access
+  - attack.t1110.001
+  - ics.iec62443-3-3.sr1.1
+logsource:
+  product: securiglass
+  service: audit
+detection:
+  selection:
+    event_type: AUTH_LOGIN
+    outcome: FAILURE
+    details.attempt_count|gte: 4
+  condition: selection
+fields:
+  - actor_username
+  - actor_ip
+  - details.reason
+  - details.attempt_count
+falsepositives:
+  - Mot de passe oublie ou erreur de saisie repetee sur un poste de production.
+  - Test de charge ou de non-regression executant des logins volontairement invalides.
+  - Adresse IP partagee derriere un NAT (plusieurs operateurs).
+level: high

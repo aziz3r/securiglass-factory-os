@@ -1,0 +1,509 @@
+\documentclass[11pt,a4paper]{report}
+\input{preambule}
+
+\title{SecuriGlass Factory OS --- Rapport technique}
+\author{Mohamed Aziz Baoueb}
+\date{Octobre 2026}
+
+\begin{document}
+
+% ============================================================ page de titre
+\begin{titlepage}
+  \centering
+  \vspace*{2.2cm}
+
+  {\Large\scshape Rapport technique complet}\\[0.6cm]
+  \textcolor{rulegray}{\rule{0.5\linewidth}{0.4pt}}\\[1.4cm]
+
+  {\fontsize{32}{38}\selectfont\bfseries\color{accent} SecuriGlass Factory~OS}\\[0.5cm]
+  {\Large\itshape Architecture, implémentation, sécurité et vérification}\\[2.2cm]
+
+  \begin{tabular}{rl}
+    \textbf{Auteur} & Mohamed Aziz Baoueb \\[4pt]
+    \textbf{Date} & Octobre 2026 \\[4pt]
+    \textbf{Nature} & Documentation technique de preuve de concept (PoC) \\[4pt]
+    \textbf{Langages} & Python, TypeScript, C, SQL, Bash \\[4pt]
+    \textbf{Référentiels} & IEC~62443-3-3, OWASP ASVS v4.0, OWASP Top~10 for LLM,\\
+     & NIST SP~800-82, RGPD, EN~12150-1, ANSSI EBIOS~RM \\
+  \end{tabular}
+
+  \vfill
+  \textcolor{rulegray}{\rule{0.5\linewidth}{0.4pt}}\\[0.4cm]
+  {\small Ce document détaille l'implémentation technique du projet~: pile
+  logicielle, architecture, sécurité, tests et déploiement. Le rapport de
+  projet, plus court, présente les objectifs et les fonctionnalités.}
+\end{titlepage}
+
+\tableofcontents
+
+% ================================================================ chapitre
+\chapter{Introduction}
+
+\section{Objet de ce document}
+Ce rapport documente, de façon exhaustive, l'implémentation technique de
+SecuriGlass Factory~OS~: la pile logicielle retenue pour chaque composant, la
+structure du dépôt, les mécanismes de sécurité réellement codés (et non
+seulement envisagés), la stratégie de tests, et la manière de faire tourner
+l'ensemble en local. Il complète le rapport de projet, qui reste centré sur les
+objectifs et les fonctionnalités vues par l'utilisateur.
+
+\section{Principe de rédaction}
+Chaque mesure de sécurité décrite ici a été vérifiée dans le code au moment de
+la rédaction. Quand une mesure n'est pas implémentée mais seulement prévue,
+elle est explicitement marquée \emph{planifiée} ; ce choix évite qu'une lecture
+rapide du document fasse croire à une garantie qui n'existe pas encore dans le
+code.
+
+\chapter{Architecture générale}
+
+\section{Vue d'ensemble}
+Le système est composé de cinq services indépendants, chacun dans son propre
+répertoire sous \texttt{services/}, communiquant par des interfaces strictement
+définies (Modbus~TCP, UDP, HTTP, WebSocket). Aucun composant ne partage de
+mémoire ou de base de données avec un autre composant d'une zone de confiance
+différente.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Service} & \textbf{Rôle} & \textbf{Langage} \\
+\midrule
+\texttt{ot-plc-daemon} & Automate du four (simulateur + serveur Modbus) & C11 \\
+\texttt{ot-edge-gateway} & Passerelle de collecte OT~$\rightarrow$~diode & Python 3.12 \\
+\texttt{backend-api} & API métier, authentification, IA, WebSocket & Python 3.12 / FastAPI \\
+\texttt{frontend-ui} & Console web & TypeScript / React 18 \\
+\texttt{soc-siem} & Détection et corrélation (hors périmètre console) & Python \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Le modèle de Purdue appliqué}
+Chaque service est rattaché à un niveau du modèle de Purdue, qui organise un
+système industriel en zones de confiance croissante~:
+
+\begin{center}
+\begin{tabular}{@{}cl p{7.5cm}@{}}
+\toprule
+\textbf{Niveau} & \textbf{Zone} & \textbf{Composants et contraintes} \\
+\midrule
+0--1 & Terrain / contrôle & \texttt{ot-plc-daemon} : aucune dépendance réseau
+sortante, aucune écriture distante non authentifiée. \\
+2--3 & Supervision OT & \texttt{ot-edge-gateway} : client Modbus en
+\emph{lecture seule} uniquement (aucune fonction d'écriture implémentée côté
+client). \\
+3,5 & Zone démilitarisée & Diode de données : liaison UDP strictement
+unidirectionnelle, aucun accusé de réception possible par construction du
+protocole. \\
+4 & Informatique de gestion & \texttt{backend-api} + PostgreSQL : seul point
+d'entrée du système d'information vers les données OT. \\
+5 & Entreprise & \texttt{frontend-ui} : aucun accès réseau direct à l'OT, tout
+passe par l'API de niveau~4. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La propriété de sécurité centrale du système est que \textbf{le franchissement
+du niveau 3,5 vers le niveau~3 est impossible par construction}~: la diode de
+données est un émetteur UDP \emph{sans aucune fonction de réception}, donc même
+une compromission complète du niveau~4 ne donnerait pas, à elle seule, de
+chemin réseau vers l'automate.
+
+\chapter{Pile technologique}
+\label{chap:tech-stack}
+
+\section{Backend}
+\begin{itemize}
+  \item \textbf{FastAPI} (Python 3.12, async) --- framework HTTP et WebSocket.
+  \item \textbf{asyncpg} --- pilote PostgreSQL asynchrone, sans ORM, requêtes
+    SQL paramétrées explicites.
+  \item \textbf{Pydantic~v2} --- validation stricte des schémas d'entrée/sortie
+    (\texttt{extra="forbid"}, rejet de tout champ inconnu).
+  \item \textbf{Argon2id} (bibliothèque \texttt{argon2-cffi}) --- hachage des
+    mots de passe, paramètres $t=3$, $m=65536$~KiB (64~Mio), $p=4$, sel de
+    16~octets, conformes à la RFC~9106.
+  \item \textbf{PyJWT} --- jetons de session signés HS256, identifiant unique
+    (\texttt{jti}) permettant la révocation.
+  \item \textbf{cryptography} (AES-256-GCM) --- chiffrement au repos des
+    données personnelles clients (TDE applicative).
+  \item \textbf{scikit-learn} (repli pur Python si absent) --- détection
+    d'anomalies par forêt d'isolement.
+  \item \textbf{Alembic} --- migrations de schéma versionnées et idempotentes.
+  \item \textbf{mypy --strict}, \textbf{bandit}, \textbf{black} --- qualité et
+    sécurité statique du code.
+\end{itemize}
+
+\section{Frontend}
+\begin{itemize}
+  \item \textbf{React~18} + \textbf{TypeScript} (mode strict,
+    \texttt{noUncheckedIndexedAccess}, \texttt{exactOptionalPropertyTypes}).
+  \item \textbf{Vite} --- empaquetage ; build de production sans script
+    inline, compatible avec une Content-Security-Policy stricte.
+  \item \textbf{Zustand} --- état applicatif, sans middleware de persistance
+    (le jeton de session ne vit qu'en mémoire JavaScript).
+  \item \textbf{react-router} --- routage côté client, gardes d'accès par
+    rôle.
+  \item \textbf{Vitest} + \textbf{Testing Library} --- tests unitaires et de
+    composants, couverture~\textgreater{}~80~\% imposée en seuil de build.
+  \item Aucune bibliothèque de rendu HTML dynamique, aucune dépendance
+    graphique tierce~: les graphiques sont du SVG généré par le code.
+\end{itemize}
+
+\section{Automate et réseau industriel}
+\begin{itemize}
+  \item \textbf{C11} (\texttt{-std=c11 -Wall -Wextra -Werror -pedantic}) ---
+    démon automate, zéro allocation dynamique résiduelle, \texttt{poll()} pour
+    la boucle réseau non bloquante.
+  \item \textbf{Modbus Application Protocol V1.1b3} --- codes fonction~0x01 à
+    0x10 implémentés côté serveur (lecture de bobines, de registres, écriture
+    simple et multiple).
+  \item \textbf{Python 3.12} (passerelle) --- client Modbus en lecture seule,
+    \texttt{cryptography} pour la signature Ed25519 des trames.
+\end{itemize}
+
+\section{Infrastructure}
+\begin{itemize}
+  \item \textbf{Docker} --- conteneurisation de PostgreSQL (avec extension
+    \texttt{pgAudit}) et des services applicatifs.
+  \item \textbf{Ansible} --- durcissement système conforme aux CIS Benchmarks
+    (rôle \texttt{cis\_linux}).
+  \item \textbf{Terraform} --- définition déclarative de l'infrastructure
+    cible.
+  \item \textbf{GitHub Actions} --- intégration continue en sept étapes
+    (\cref{chap:qualite}).
+\end{itemize}
+
+\chapter{Structure du dépôt}
+
+\begin{lstlisting}[language={}]
+poc-glass/
+  database/                 Schemas SQL, migrations Alembic
+    schemas/                01_init .. 06_factory_extension.sql
+    migrations/versions/    0001 .. 0004
+  docs/                     Architecture, GRC, specifications, QA
+  infra/
+    docker/                 Dockerfile PostgreSQL + docker-compose
+    ansible/                Durcissement CIS (rôle cis_linux)
+    terraform/               Infrastructure déclarative
+  redteam/                  Outils de test d'intrusion Modbus (lecture
+                             et écriture encadrées, autorisation requise)
+  scripts/                  dev_up.sh / dev_down.sh / seeds de démo
+  security/                 Config pipeline SAST/SCA, tests associés
+  services/
+    backend-api/            API FastAPI (app/api, app/core, app/services)
+    frontend-ui/             Console React/TypeScript (src/)
+    ot-plc-daemon/           Automate C11 (src/, include/, tests/)
+    ot-edge-gateway/         Passerelle Python (gateway/)
+    soc-siem/                Détection et corrélation
+  tests/                    Tests d'intégration et de sécurité transverses
+\end{lstlisting}
+
+\chapter{Backend --- API et services métier}
+
+\section{Organisation du code}
+Le backend suit une séparation stricte en trois couches~: \texttt{app/api}
+(routes HTTP/WebSocket, validation d'entrée, dépendances FastAPI),
+\texttt{app/services} (logique métier pure, testable indépendamment du
+framework web) et \texttt{app/core} (configuration, base de données,
+sécurité transverse).
+
+\section{Identité et authentification}
+Les mots de passe sont hachés en Argon2id (paramètres au
+\cref{chap:tech-stack}). La connexion délivre un jeton JWT (HS256) contenant un
+identifiant unique de session (\texttt{jti}) ; ce \texttt{jti} est inscrit dans
+une table de révocation lors de la déconnexion, ce qui permet d'invalider un
+jeton avant son expiration naturelle sans avoir besoin d'une liste noire
+globale à chaque requête. Un verrouillage temporaire du compte suit plusieurs
+échecs de connexion consécutifs.
+
+\section{Autorisation~: RBAC puis ABAC}
+Six rôles sont définis~: \texttt{SUPER\_ADMIN}, \texttt{SECURITY\_AUDITOR},
+\texttt{PLANT\_MANAGER}, \texttt{OT\_OPERATOR}, \texttt{QUALITY\_INSPECTOR} et
+\texttt{SERVICE\_ACCOUNT\_EDGE}. Chaque route de l'API déclare explicitement
+les rôles autorisés via une dépendance FastAPI (\texttt{require\_roles}), et
+toute tentative refusée est inscrite dans le journal d'audit avec le rôle
+détenu et le rôle requis. Un moteur de règles contextuelles (ABAC) vient
+compléter le RBAC pour des décisions qui dépendent du contexte (plage horaire,
+sous-réseau, verrou de maintenance) : la politique est \emph{fail-closed}~:
+en l'absence de donnée de contexte, la règle refuse plutôt que d'autoriser par
+défaut.
+
+\section{Confidentialité des données clients}
+Les champs personnels des clients (nom du contact, e-mail, téléphone) sont
+chiffrés avec AES-256-GCM avant écriture en base ; seule la raison sociale
+reste en clair, pour permettre la recherche sans exposer de donnée
+personnelle. Le déchiffrement n'a lieu qu'à la lecture par un rôle habilité.
+
+\section{Journal d'audit chaîné}
+Chaque événement sensible (connexion, création de client, refus d'accès,
+consigne bloquée, vérification de la chaîne elle-même) est inscrit dans
+\texttt{sec\_data.audit\_logs} avec une empreinte SHA-256 calculée sur
+l'enregistrement \emph{et} l'empreinte de l'enregistrement précédent. Un
+verrou consultatif PostgreSQL (\texttt{pg\_advisory\_xact\_lock}) sérialise les
+écritures concurrentes pour que la chaîne reste strictement ordonnée. Un
+déclencheur SQL interdit toute modification ou suppression de ligne existante
+\texttt{a posteriori} ; la suppression d'un compte (exigée par le RGPD,
+art.~17) ne touche donc jamais le journal, qui conserve un instantané de
+l'identité de l'acteur sans contrainte référentielle vers la table des
+utilisateurs.
+
+\section{Télémétrie en direct~: WebSocket}
+Le canal \texttt{/ws/telemetry} authentifie le client dans le \emph{premier
+message} après l'ouverture de la connexion (jamais dans l'URL, pour éviter
+qu'un jeton se retrouve dans des journaux d'accès). Le rôle est revérifié
+périodiquement (toutes les 30~secondes) pendant la durée de la connexion, et
+le nombre de connexions simultanées est plafonné. Chaque nouvelle mesure est
+accompagnée du diagnostic du modèle d'apprentissage automatique, jamais
+présentée comme « normale » par défaut quand ce diagnostic est
+indisponible.
+
+\section{Détection d'anomalies (apprentissage automatique)}
+Le détecteur utilise une forêt d'isolement (\emph{Isolation Forest},
+\texttt{scikit-learn}, avec un repli pur Python si la bibliothèque est
+absente) sur neuf mesures physiques (températures des quatre zones,
+pyromètre du verre, pression de trempe, vitesse de convoyeur, courant du
+soufflage, puissance consommée) enrichies de trois grandeurs dérivées~: le
+régime de fonctionnement courant, l'écart maximal entre zones, et l'écart
+entre le pyromètre et la moyenne des zones. Ces grandeurs dérivées donnent au
+modèle le contexte croisé qu'une lecture zone par zone ne porte pas. En
+complément du score statistique, des signatures de pannes déterministes
+(surchauffe critique, perte de pression de trempe, blocage convoyeur, risque
+de casse thermique, défaillance d'une résistance) forcent une sévérité
+\texttt{CRITICAL} indépendamment du score, pour garantir leur détection à
+100~\% quelle que soit la sensibilité statistique du modèle.
+
+\section{Assistant technique et garde LLM}
+\label{sec:llm-guard}
+L'assistant est protégé par quatre barrières hermétiques, appliquées dans
+l'ordre~:
+\begin{enumerate}
+  \item \textbf{Filtrage de l'entrée} --- canonicalisation du texte (décodage
+    des échappements HTML/URL, normalisation Unicode NFKC, suppression des
+    caractères de contrôle, mise à plat des variantes à base d'espacement ou
+    de \emph{leetspeak}, décodage récursif borné du Base64) avant
+    comparaison à un ensemble de motifs d'attaque multilingues (français,
+    anglais, espagnol)~: contournement d'instruction, désactivation de
+    sécurité, jeu de rôle, exfiltration de secret ou de message système.
+  \item \textbf{Recherche cloisonnée} --- les réponses sont puisées dans un
+    corpus documentaire local portant sur la norme EN~12150, jamais générées
+    librement à partir de connaissances externes.
+  \item \textbf{Génération contrainte} --- le moteur de réponse est
+    déterministe et contraint au contexte normatif récupéré ; il n'improvise
+    pas de valeur physique.
+  \item \textbf{Contrôle de sortie} --- toute grandeur physique présente dans
+    la réponse (température, pression, quelle que soit l'unité employée) est
+    reconvertie et comparée aux bornes de sûreté EN~12150
+    (620--730\textdegree{}C, 1,5--6,5~bar) avant envoi ; une réponse hors
+    bornes est bloquée et consignée comme incident critique.
+\end{enumerate}
+Un limiteur de débit à seau de jetons (10~requêtes/minute/utilisateur)
+protège l'assistant contre un abus par volume. Les demandes portant sur des
+données financières ou personnelles des clients sont refusées par un filtre
+d'intention dédié, appliqué \emph{après} le filtre anti-injection, et
+consignées séparément.
+
+\section{API « usine » et principe du besoin d'en connaître}
+L'endpoint \texttt{GET~/api/v1/factory/overview} ne renvoie que les blocs de
+données utiles au rôle de l'appelant~: un opérateur ne reçoit ni les données
+commerciales, ni la conformité, ni les alertes, même si le serveur les a
+calculées pour un autre appel. Ce filtrage est appliqué côté serveur, pas
+seulement masqué côté interface. La prise de commande
+(\texttt{POST~/api/v1/orders}) exécute, dans une seule transaction~: la
+vérification du stock disponible (verrouillage des lignes concernées), le
+calcul de la surface de verre, la déduction des matières premières et
+l'enregistrement de la commande ; tout échec annule l'ensemble.
+
+\chapter{Réseau industriel~: automate et passerelle}
+
+\section{Simulateur physique et serveur Modbus}
+Le démon \texttt{ot-plc-daemon} simule la thermodynamique d'un four à quatre
+zones de chauffe (inertie différentielle, refroidissement par soufflage,
+cinématique du convoyeur) et expose ces grandeurs via un serveur Modbus~TCP
+non bloquant (\texttt{poll()}, un seul processus, aucune allocation
+dynamique résiduelle). Les consignes acceptées en écriture sont bornées
+physiquement dans le micrologiciel lui-même (ex.~500,0--750,0\textdegree{}C
+pour les consignes de zone) ; une valeur hors bornes est refusée par une
+exception Modbus (\texttt{ILLEGAL\_DATA\_VALUE}), indépendamment de tout
+contrôle applicatif en amont. L'arrêt d'urgence (E-STOP) coupe le chauffage
+immédiatement ; sa levée exige un acquittement physique du relais de
+sécurité et ne peut pas être demandée par le réseau seul, par analogie avec
+un automate réel.
+
+\section{Passerelle de collecte}
+La passerelle \texttt{ot-edge-gateway} interroge l'automate en Modbus avec un
+client strictement \emph{read-only} (aucune fonction d'écriture n'est même
+implémentée côté client), décode les registres en grandeurs physiques, les
+valide (bornes physiques, absence de valeurs non finies), puis les transmet
+à la diode de données. Elle ne reçoit jamais de réponse du système
+d'information.
+
+\section{Diode de données}
+Le protocole binaire de la diode comprend un en-tête fixe de 64~octets
+(signature \texttt{SGDD}, version, numéro de séquence croissant sur 64~bits,
+horodatage en microsecondes, identifiant de l'émetteur, longueur de charge
+utile), suivi d'une charge utile JSON canonique et d'un sceau de 96~octets
+(empreinte SHA-256 et signature Ed25519). Le récepteur, côté système
+d'information~:
+\begin{itemize}
+  \item recalcule l'empreinte en temps constant (\texttt{hmac.compare\_digest})
+    et vérifie la signature avec la clé publique de confiance de l'émetteur~;
+  \item rejette toute trame dont la séquence n'est pas strictement croissante
+    (protection anti-rejeu) et tolère une dérive d'horloge maximale de
+    30~secondes~;
+  \item déduplique durablement par un identifiant de transmission unique
+    (UUID~v5) contraint \texttt{UNIQUE} en base, pour rejeter un rejeu même
+    après un redémarrage de la passerelle~;
+  \item journalise toute trame rejetée dans
+    \texttt{ot\_data.diode\_import\_log}, sans jamais émettre d'accusé de
+    réception vers le réseau industriel.
+\end{itemize}
+
+\chapter{Interface web}
+
+\section{Sécurité côté client}
+La politique de sécurité du contenu (CSP) interdit tout script non
+auto-hébergé et tout script en ligne (\texttt{default-src~'none'}) ; le
+jeton de session ne vit qu'en mémoire JavaScript (aucune écriture dans
+\texttt{localStorage}, \texttt{sessionStorage} ou un cookie), ce qui est
+vérifié automatiquement par un test qui interdit la présence de ces appels
+dans l'ensemble du code source. Un rechargement de page déconnecte donc
+l'utilisateur par construction.
+
+\section{Accès par rôle, dans l'interface comme sur le réseau}
+La navigation, les routes et les sélecteurs d'état n'affichent une rubrique
+que si le rôle courant y donne droit ; ce filtrage côté client est une
+commodité d'usage, jamais une autorité~: chaque appel réseau correspondant
+est revérifié côté serveur, et une tentative d'accès direct à une route non
+autorisée renvoie une page d'erreur sans qu'aucune donnée n'ait transité.
+
+\section{Thème et langue}
+L'interface suit la préférence système pour le mode clair ou sombre
+(\texttt{prefers-color-scheme}) et propose une bascule manuelle ; la console
+est disponible en français et en anglais via un dictionnaire de traduction
+central. Ces deux préférences restent en mémoire pour la durée de la session,
+sans être écrites sur le poste, pour respecter la même contrainte que le
+jeton de session.
+
+\section{Accessibilité et robustesse d'affichage}
+Les composants graphiques (courbes, jauges, carte réseau) sont du SVG
+généré par le code, jamais une image~: aucune dépendance à un style en ligne
+interdit par la CSP. La mise en page reste lisible depuis un téléphone
+(375~px) jusqu'à un grand écran, avec un empilement explicite des éléments
+plutôt qu'une grille figée susceptible de faire chevaucher du texte long
+(ex.~nom de client) sur une colonne voisine.
+
+\chapter{Qualité, tests et intégration continue}
+\label{chap:qualite}
+
+\section{Stratégie de tests}
+\begin{center}
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Domaine} & \textbf{Outil} & \textbf{Résultat} \\
+\midrule
+API et services métier & pytest (avec PostgreSQL réel) & 563 passés \\
+Interface web & Vitest + Testing Library & 122 passés \\
+Automate C --- unitaires & \texttt{bin/plc\_test} & 22 passés \\
+Automate C --- fuzzing & \texttt{bin/plc\_fuzz\_test} & 763 cas, 0 crash \\
+Automate C --- fuites mémoire & \texttt{leaks} (macOS) & 0 fuite \\
+Passerelle de collecte & pytest & 20 passés \\
+Red team diode / LLM Guard / ML & pytest (adversarial) & 133 passés \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Portes de qualité automatisées}
+L'intégration continue (GitHub Actions) exécute sept étapes à chaque
+modification~: \texttt{lint} (types stricts, formatage), \texttt{test}
+(suite complète), \texttt{sast} (analyse statique de sécurité, \texttt{bandit}
+et règles maison), \texttt{sca} (audit des dépendances), \texttt{docker}
+(construction des images), \texttt{sbom} (inventaire logiciel) et
+\texttt{sign} (signature des artefacts produits).
+
+\section{Vérification par attaque réelle}
+Au-delà des tests automatisés, le comportement du système a été vérifié par
+une attaque réseau réelle menée directement contre l'automate (sans passer
+par l'application), décrite au chapitre~6 du rapport de projet~: elle a
+confirmé que les bornes physiques tiennent au niveau du micrologiciel, que le
+modèle de détection réagit sans intervention, et qu'elle a aussi révélé
+l'absence de sonde réseau sur le segment industriel --- une limite
+honnêtement documentée plutôt que masquée.
+
+\chapter{Infrastructure et déploiement}
+
+\section{Environnement de développement local}
+Le script \texttt{scripts/dev\_up.sh} orchestre le démarrage complet de la
+chaîne en sept étapes~: base PostgreSQL durcie (avec \texttt{pgAudit}),
+génération d'une paire de clés Ed25519 pour la passerelle, démarrage de
+l'API, création des comptes et données de démonstration, compilation et
+démarrage de l'automate, démarrage du récepteur et de la passerelle, puis
+démarrage de la console. \texttt{scripts/dev\_down.sh} arrête proprement
+l'ensemble.
+
+\section{Durcissement système}
+Le rôle Ansible \texttt{cis\_linux} applique un sous-ensemble des CIS
+Benchmarks~: durcissement \texttt{sysctl} (désactivation du
+\emph{forwarding} IP, protection anti-usurpation, activation des
+\emph{SYN cookies}, désactivation des redirections ICMP), configuration de
+\texttt{sshd} et d'\texttt{auditd}, bannière légale de connexion.
+
+\section{Conteneurisation}
+PostgreSQL tourne dans une image Debian (et non Alpine, qui ne fournit pas
+l'extension \texttt{pgAudit}) avec principe de moindre privilège
+(\texttt{no-new-privileges}, capacités Linux réduites au strict nécessaire).
+
+\chapter{Limites connues et travaux futurs}
+
+\section{Ce qui est implémenté}
+Tout ce qui est décrit dans ce rapport correspond à du code existant et
+testé au moment de la rédaction.
+
+\section{Ce qui est volontairement hors périmètre}
+\begin{itemize}
+  \item \textbf{Détection réseau sur le segment OT} --- une attaque Modbus
+    directe sur l'automate n'est pas aujourd'hui détectée par le flux
+    d'alertes de la console (voir chapitre~6 du rapport de projet).
+  \item \textbf{Réplication à froid et plan de reprise} --- cités dans le
+    dossier d'architecture comme mesures cibles, non implémentés dans ce
+    PoC.
+  \item \textbf{Signature des consignes envoyées à l'automate} --- l'écriture
+    de consignes existe au niveau du protocole Modbus pour les besoins de la
+    démonstration, sans couche de signature applicative supplémentaire.
+  \item \textbf{Image Docker \emph{distroless}} pour le backend --- non
+    construite dans ce PoC.
+  \item \textbf{Homologation} --- ce projet est une démonstration technique ;
+    aucune autorité d'homologation ne s'est prononcée sur le système.
+\end{itemize}
+
+\section{Suites possibles}
+Ajouter une sonde de détection sur le réseau industriel, exécuter
+l'intégralité de la suite de tests (y compris ceux aujourd'hui ignorés faute
+d'outillage disponible sur macOS) sur un environnement Linux de référence,
+puis traiter dans l'ordre les mesures listées ci-dessus comme
+\emph{planifiées}.
+
+\appendix
+\chapter{Glossaire}
+
+\begin{description}
+  \item[ABAC] \emph{Attribute-Based Access Control} --- autorisation fondée
+    sur des règles contextuelles, en complément du contrôle par rôle.
+  \item[CSP] \emph{Content Security Policy} --- politique de sécurité du
+    contenu, appliquée par le navigateur.
+  \item[Diode de données] Dispositif garantissant qu'un flux d'information ne
+    peut transiter que dans un seul sens entre deux zones réseau.
+  \item[IEC~62443] Famille de normes de cybersécurité pour les systèmes
+    d'automatisation et de contrôle industriels.
+  \item[Modèle de Purdue] Modèle de référence organisant un système
+    industriel en niveaux de confiance, du terrain (niveau~0) à l'entreprise
+    (niveau~5).
+  \item[Modbus~TCP] Protocole de communication industrielle utilisé pour
+    interroger et commander un automate.
+  \item[OT / IT] \emph{Operational Technology} (réseau industriel) et
+    \emph{Information Technology} (réseau informatique de gestion).
+  \item[RBAC] \emph{Role-Based Access Control} --- autorisation fondée sur le
+    rôle de l'utilisateur.
+  \item[TDE] \emph{Transparent Data Encryption} --- chiffrement des données
+    au repos, transparent pour l'application qui les consomme.
+\end{description}
+
+\end{document}

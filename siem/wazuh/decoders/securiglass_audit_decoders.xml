@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==========================================================================
+  Decodeurs SecuriGlass - audit applicatif
+  ==========================================================================
+  1. JSON Lines (format nominal) : chaque ligne de /var/log/securiglass/
+     audit.jsonl est un objet JSON. Le plugin JSON_Decoder aplatit les objets
+     imbriques avec la notation point (`details.reason`).
+  2. Texte (repli) : ligne `AUDIT: Evenement <TYPE> consigne pour <user>
+     (outcome=<...>, hash=<...>)` emise par le logger Python du backend.
+  ==========================================================================
+-->
+<decoder_list>
+
+  <!-- Audit JSON Lines : { "source": "securiglass.audit", ... } -->
+  <decoder name="securiglass-audit-json">
+    <prematch>^\{</prematch>
+    <plugin_decoder>JSON_Decoder</plugin_decoder>
+  </decoder>
+
+  <!-- Repli texte : evenement d'audit chaine (logger securiglass.audit) -->
+  <decoder name="securiglass-audit-text">
+    <prematch>^AUDIT: </prematch>
+    <regex>^AUDIT: Événement (\S+) consigné pour (\S+) \(outcome=(\S+), hash=([0-9a-fA-F]+)\)</regex>
+    <order>event_type, actor_username, outcome, audit_hash</order>
+  </decoder>
+
+  <!-- Variante sans accents (journaux normalises en ASCII) -->
+  <decoder name="securiglass-audit-text-ascii">
+    <prematch>^AUDIT: Evenement </prematch>
+    <regex>^AUDIT: Evenement (\S+) consigne pour (\S+) \(outcome=(\S+), hash=([0-9a-fA-F]+)\)</regex>
+    <order>event_type, actor_username, outcome, audit_hash</order>
+  </decoder>
+
+</decoder_list>

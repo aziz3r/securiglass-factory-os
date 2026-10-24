@@ -1,0 +1,48 @@
+# =============================================================================
+# SecuriGlass Factory OS - Exemple de variables Terraform
+# =============================================================================
+# Copier vers terraform.tfvars (ignore par git) et REMPLACER tous les CHANGE_ME.
+# Ne jamais versionner terraform.tfvars ni l'etat Terraform (secrets en clair).
+#
+# Generation des secrets :
+#   openssl rand -hex 32    # tde_encryption_key (64 caracteres hexadecimaux)
+#   openssl rand -base64 48 # backend_secret_key (>= 64 caracteres)
+#   openssl rand -base64 32 # postgres_password (>= 20 caracteres)
+# =============================================================================
+
+project_name = "securiglass"
+environment  = "production"
+
+# --- Images construites localement -----------------------------------------
+# L'image PostgreSQL est celle produite par infra/docker/postgres (tag du
+# compose). Pour une chaine SLSA, la reconstruire avec un tag immuable :
+#   docker build -t securiglass/postgres-pgaudit:16-infra infra/docker/postgres
+postgres_image = "docker-securiglass-db:latest"
+backend_image  = "securiglass/backend-api:1.0.0"
+
+# --- Exposition de l'API ----------------------------------------------------
+backend_bind_address = "127.0.0.1"
+backend_port         = 8000
+
+# --- Secrets (OBLIGATOIRES, aucune valeur par defaut) -----------------------
+postgres_db       = "securiglass_db"
+postgres_user     = "securiglass_admin"
+postgres_password = "CHANGE_ME_POSTGRES_PASSWORD_20_CHARS_MIN"
+
+backend_secret_key  = "CHANGE_ME_BACKEND_SECRET_KEY_64_CHARS_MINIMUM_0123456789abcdef"
+tde_encryption_key  = "CHANGE_ME_64_HEXADECIMAL_CHARACTERS_FROM_OPENSSL_RAND_HEX_32"
+
+# --- Segmentation (valeurs par defaut explicitees) --------------------------
+net_ot_subnet          = "10.10.30.0/24"
+net_it_subnet          = "10.20.0.0/24"
+net_dmz_subnet         = "10.30.0.0/24"
+postgres_ip            = "10.20.0.10"
+backend_it_ip          = "10.20.0.20"
+backend_dmz_ip         = "10.30.0.10"
+ot_control_room_cidr   = "10.10.20.0/24"
+ot_gateway_cidr        = "10.10.30.0/24"
+
+# --- Dimensionnement --------------------------------------------------------
+db_pool_min      = 5
+db_pool_max      = 20
+backend_log_level = "INFO"

@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==========================================================================
+  SecuriGlass Factory OS - Regles locales Wazuh (pgAudit / reseau OT)
+  ==========================================================================
+  Sources :
+    - pgAudit     : lignes "AUDIT:" decodees par pgaudit / pgaudit-postgres
+    - Suricata    : EVE JSON (event_type=modbus ou flow, dest_port=5020)
+    - Passerelle  : evenements normalises OT_PROCESS_WRITE / EDGE_CERT_AUTH
+  Reseaux de reference :
+    - 10.10.30.0/24 : passerelle edge / automates (Purdue 1-2)
+    - 10.10.20.0/24 : salle de controle (Purdue 2-3)
+  Toute connexion Modbus dont la source n'est PAS 10.10.30.0/24 est consideree
+  comme hors zone OT (ex. poste IT, salle de controle compromise, DMZ).
+  ==========================================================================
+-->
+<group name="securiglass,ot,">
+
+  <!-- ===================== PGAUDIT : ABAC ===================== -->
+  <rule id="100116" level="10">
+    <field name="pgaudit_command" type="pcre2">^(INSERT|UPDATE|DELETE|TRUNCATE|ALTER)$</field>
+    <field name="pgaudit_object_name" type="pcre2">(^|\.)abac_policies$</field>
+    <description>SecuriGlass : modification directe en base d'une politique ABAC (pgAudit : $(pgaudit_command) sur $(pgaudit_object_name))</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>pgaudit,abac_change,database,</group>
+  </rule>
+
+  <!-- ===================== PGAUDIT : DDL SENSIBLE ===================== -->
+  <rule id="100117" level="8">
+    <field name="pgaudit_class">^DDL$</field>
+    <field name="pgaudit_object_name" type="pcre2">^(sec_data|it_data|ot_data)\.</field>
+    <description>SecuriGlass : changement de schema (DDL) sur un schema sensible ($(pgaudit_object_name))</description>
+    <mitre>
+      <id>T0872</id>
+    </mitre>
+    <group>pgaudit,ddl,database,</group>
+  </rule>
+
+  <!-- ===================== PGAUDIT : ROLES / GRANTS ===================== -->
+  <rule id="100118" level="10">
+    <field name="pgaudit_class">^ROLE$</field>
+    <description>SecuriGlass : modification de role ou de privilege PostgreSQL (pgAudit ROLE)</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>pgaudit,role_change,database,</group>
+  </rule>
+
+  <!-- ===================== PGAUDIT : AUDIT LOGS ===================== -->
+  <rule id="100119" level="15">
+    <field name="pgaudit_command" type="pcre2">^(UPDATE|DELETE|TRUNCATE)$</field>
+    <field name="pgaudit_object_name" type="pcre2">^sec_data\.audit_logs$</field>
+    <description>CRITIQUE - SecuriGlass : tentative d'UPDATE/DELETE sur le journal d'audit immuable sec_data.audit_logs</description>
+    <mitre>
+      <id>T0872</id>
+    </mitre>
+    <group>pgaudit,audit_tamper,integrity,critical,</group>
+  </rule>
+
+  <!-- ===================== RESEAU MODBUS ===================== -->
+  <!-- Connexion Modbus/TCP 5020 dont la source n'est pas la zone OT -->
+  <rule id="100121" level="8">
+    <field name="event_type" type="pcre2">^(modbus|flow)$</field>
+    <field name="dest_port">^5020$</field>
+    <field name="proto" type="pcre2">^(tcp|TCP)$</field>
+    <field name="src_ip" negate="yes" type="pcre2">^10\.10\.30\.\d{1,3}$</field>
+    <description>SecuriGlass OT : connexion Modbus/TCP 5020 depuis un reseau non-OT ($(src_ip) -> $(dst_ip):5020)</description>
+    <mitre>
+      <id>T0886</id>
+      <id>T0840</id>
+    </mitre>
+    <group>modbus,network,ot_network,</group>
+  </rule>
+
+  <!-- Ecriture Modbus (FC5/6/15/16) depuis un reseau non-OT -->
+  <rule id="100122" level="10">
+    <field name="event_type">^modbus$</field>
+    <field name="modbus.function_code" type="pcre2">^(5|6|15|16)$</field>
+    <field name="src_ip" negate="yes" type="pcre2">^10\.10\.30\.\d{1,3}$</field>
+    <description>SecuriGlass OT : ecriture Modbus (FC $(modbus.function_code)) depuis un reseau non-OT ($(src_ip) -> $(dst_ip):5020)</description>
+    <mitre>
+      <id>T0836</id>
+      <id>T0855</id>
+    </mitre>
+    <group>modbus,ot_write,network,ot_network,</group>
+  </rule>
+
+  <!-- Ecriture Modbus sur un registre critique (adresse 0 a 9) -->
+  <rule id="100125" level="9">
+    <field name="event_type">^modbus$</field>
+    <field name="modbus.function_code" type="pcre2">^(5|6|15|16)$</field>
+    <field name="modbus.reference" type="pcre2">^[0-9]$</field>
+    <description>SecuriGlass OT : ecriture Modbus sur un registre critique (reference $(modbus.reference), FC $(modbus.function_code))</description>
+    <mitre>
+      <id>T0836</id>
+      <id>T0831</id>
+    </mitre>
+    <group>modbus,ot_write,critical_register,</group>
+  </rule>
+
+  <!-- ===================== ECRITURE PROCEDE HORS HORAIRE ===================== -->
+  <!-- Plage autorisee : 05:45 - 22:15 (heure du serveur Wazuh, TZ Europe/Paris).
+       Hors plage : 22:16 - 05:44. Le controle est fait a l'ingestion, pas sur
+       l'horodatage de l'evenement : NTP obligatoire sur le manager. -->
+  <rule id="100123" level="9">
+    <field name="event_type">^OT_PROCESS_WRITE$</field>
+    <time>10:16 pm - 5:44 am</time>
+    <description>SecuriGlass OT : ecriture de procede hors plage autorisee (05:45-22:15) par $(actor_username)</description>
+    <mitre>
+      <id>T0836</id>
+      <id>T0831</id>
+    </mitre>
+    <group>ot_write,outside_schedule,process_integrity,</group>
+  </rule>
+
+  <!-- Variante explicite (passerelle qui calcule le drapeau) -->
+  <rule id="100128" level="9">
+    <field name="event_type">^OT_PROCESS_WRITE$</field>
+    <field name="outside_schedule">^true$</field>
+    <description>SecuriGlass OT : ecriture de procede signalee hors plage par la passerelle (05:45-22:15) par $(actor_username)</description>
+    <mitre>
+      <id>T0836</id>
+      <id>T0831</id>
+    </mitre>
+    <group>ot_write,outside_schedule,process_integrity,</group>
+  </rule>
+
+  <!-- ===================== CERTIFICAT EDGE REVOQUE ===================== -->
+  <rule id="100124" level="12">
+    <field name="event_type">^EDGE_CERT_AUTH$</field>
+    <field name="details.cert_status">^REVOKED$</field>
+    <description>CRITIQUE - SecuriGlass OT : utilisation d'un certificat edge revoque ($(details.cert_fingerprint)) depuis $(actor_ip)</description>
+    <mitre>
+      <id>T0859</id>
+    </mitre>
+    <group>edge_cert,revoked_certificate,authentication,ot_gateway,</group>
+  </rule>
+
+</group>

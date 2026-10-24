@@ -1,0 +1,38 @@
+title: Exfiltration volumetrique de donnees clients
+id: 38149783-c89e-4a8b-ae70-4753fa3b24bc
+status: experimental
+description: >
+  Detection d'une extraction massive du portefeuille clients B2B : une seule
+  consultation CUSTOMER_LISTED renvoyant au moins 1000 enregistrements. Le
+  backend journalise details.record_count et details.export_format. Ce signal
+  complete la regle de frequence (10 consultations en 60 s) pour couvrir une
+  aspiration en une requete paginee tres large.
+references:
+  - https://attack.mitre.org/techniques/T0811/
+  - https://attack.mitre.org/techniques/T1030/
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.collection
+  - attack.exfiltration
+  - attack.t0811
+  - ics.iec62443-3-3.sr5.1
+logsource:
+  product: securiglass
+  service: audit
+detection:
+  selection:
+    event_type: CUSTOMER_LISTED
+    details.record_count|gte: 1000
+  condition: selection
+fields:
+  - actor_username
+  - actor_ip
+  - resource
+  - details.record_count
+  - details.export_format
+  - details.query_filter
+falsepositives:
+  - Export comptable mensuel legitime realise par le role PLANT_MANAGER ou SUPER_ADMIN.
+  - Migration de donnees vers l'ERP approuvee et planifiee.
+level: high

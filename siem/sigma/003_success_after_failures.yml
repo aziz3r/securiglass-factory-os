@@ -1,0 +1,37 @@
+title: Succes d'authentification apres N echecs
+id: bdc4de02-4d3a-4840-8aa5-60e539b9f8d6
+status: experimental
+description: >
+  Detection d'une connexion reussie apres plusieurs echecs consecutifs pour le
+  meme compte. Le champ details.prior_failures est calcule par le normalisateur
+  du flux d'audit (services/soc-siem) : nombre d'echecs AUTH_LOGIN consecutifs
+  observes pour l'acteur avant ce succes. Ce signal est le plus fort d'une
+  compromission apres force brute (succes apres >= 3 echecs).
+references:
+  - https://attack.mitre.org/techniques/T1078/
+  - https://attack.mitre.org/techniques/T1110/
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.credential_access
+  - attack.initial_access
+  - attack.t1078
+  - attack.t1110
+logsource:
+  product: securiglass
+  service: audit
+detection:
+  selection:
+    event_type: AUTH_LOGIN
+    outcome: SUCCESS
+    details.prior_failures|gte: 3
+  condition: selection
+fields:
+  - actor_username
+  - actor_ip
+  - details.prior_failures
+  - details.roles
+falsepositives:
+  - Utilisateur ayant retrouve son mot de passe apres plusieurs essais (verifier la source et l'heure).
+  - Reinitialisation de mot de passe suivie d'une connexion depuis un poste connu.
+level: high

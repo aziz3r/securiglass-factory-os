@@ -1,0 +1,44 @@
+---
+# =============================================================================
+# Role cis_linux - point d'entree
+# =============================================================================
+# Chaque fichier est importe avec un tag dedie pour permettre une application
+# selective :
+#   ansible-playbook playbook-hardening.yml --tags ssh
+# =============================================================================
+
+- name: "CIS - paquets de base"
+  ansible.builtin.import_tasks: packages.yml
+  tags: [cis_linux, packages]
+
+- name: "CIS - durcissement SSH"
+  ansible.builtin.import_tasks: ssh.yml
+  tags: [cis_linux, ssh]
+
+- name: "CIS - parametres noyau et reseau (sysctl)"
+  ansible.builtin.import_tasks: sysctl.yml
+  tags: [cis_linux, sysctl]
+
+- name: "CIS - auditd (journalisation systeme)"
+  ansible.builtin.import_tasks: auditd.yml
+  tags: [cis_linux, auditd]
+
+- name: "CIS - journald (persistance et scellement)"
+  ansible.builtin.import_tasks: journald.yml
+  tags: [cis_linux, journald]
+
+- name: "CIS - permissions des fichiers sensibles"
+  ansible.builtin.import_tasks: permissions.yml
+  tags: [cis_linux, permissions]
+
+- name: "CIS - umask restrictif"
+  ansible.builtin.import_tasks: umask.yml
+  tags: [cis_linux, umask]
+
+- name: "CIS - desactivation des services inutiles"
+  ansible.builtin.import_tasks: services.yml
+  tags: [cis_linux, services]
+
+- name: "CIS - bannieres legales"
+  ansible.builtin.import_tasks: banner.yml
+  tags: [cis_linux, banner]

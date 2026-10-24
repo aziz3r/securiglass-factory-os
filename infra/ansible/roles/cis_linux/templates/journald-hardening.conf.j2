@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# =============================================================================
+# SecuriGlass Factory OS - journald (CIS 4.2)
+# Persistance, compression et scellement cryptographique (Forward Secure Seal).
+# =============================================================================
+[Journal]
+Storage={{ cis_journald_storage }}
+Compress={{ cis_journald_compress }}
+Seal={{ cis_journald_seal }}
+SplitMode=none
+SystemMaxUse={{ cis_journald_system_max_use }}
+SystemKeepFree={{ cis_journald_system_keep_free }}
+MaxRetentionSec={{ cis_journald_max_retention }}
+RateLimitIntervalSec=30s
+RateLimitBurst=10000
+ForwardToSyslog=no

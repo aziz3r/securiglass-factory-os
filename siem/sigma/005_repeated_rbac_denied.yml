@@ -1,0 +1,37 @@
+title: Refus RBAC repetes pour un meme utilisateur
+id: 7e8e1866-4c3e-4a0a-b8dd-f1e2a62971a1
+status: experimental
+description: >
+  Detection d'une enumeration de privileges ou d'une tentative d'escalade :
+  le normalisateur de flux ajoute details.denied_count, nombre de refus
+  ACCESS_DENIED_RBAC pour le meme utilisateur sur une fenetre glissante de
+  10 minutes. Un seuil >= 5 declenche l'alerte. Le backend journalise les
+  roles requis et les roles portes par l'acteur.
+references:
+  - https://attack.mitre.org/techniques/T0859/
+  - https://attack.mitre.org/techniques/T0886/
+author: SecuriGlass SOC & Red Team
+date: 2026/10/24
+tags:
+  - attack.persistence
+  - attack.lateral_movement
+  - attack.t0859
+  - attack.t0886
+logsource:
+  product: securiglass
+  service: audit
+detection:
+  selection:
+    event_type: ACCESS_DENIED_RBAC
+    details.denied_count|gte: 5
+  condition: selection
+fields:
+  - actor_username
+  - actor_ip
+  - resource
+  - details.user_roles
+  - details.required_roles
+falsepositives:
+  - Interface mal configuree qui appelle des routes interdites a un role legitime.
+  - Test d'acceptation RBAC executant volontairement des requetes refusees.
+level: medium

@@ -1,0 +1,35 @@
+---
+# =============================================================================
+# CIS 1.5 - umask restrictif pour les sessions interactives et systemd
+# =============================================================================
+
+- name: "CIS 1.5.1 - deployer /etc/profile.d/99-securiglass-umask.sh"
+  ansible.builtin.template:
+    src: umask.sh.j2
+    dest: /etc/profile.d/99-securiglass-umask.sh
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [umask]
+
+- name: "CIS 1.5.2 - umask par defaut des services systemd"
+  ansible.builtin.copy:
+    dest: /etc/systemd/system.conf.d/99-securiglass-umask.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # SecuriGlass - umask restrictif pour les services systemd
+      [Manager]
+      DefaultUmask={{ cis_umask }}
+  notify: Recharger systemd
+  tags: [umask]
+
+- name: "CIS 1.5.3 - verifier l'umask du shell de connexion"
+  ansible.builtin.command: sh -lc 'umask'
+  register: cis_umask_check
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+  failed_when: false
+  tags: [umask]

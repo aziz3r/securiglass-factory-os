@@ -1,0 +1,73 @@
+# {{ ansible_managed }}
+# =============================================================================
+# SecuriGlass Factory OS - regles auditd (CIS 4.1 / IEC 62443-3-3 SR 2.8)
+# Chargement : augenrules --load (handler Ansible)
+# =============================================================================
+
+## Taille du buffer et comportement en cas de saturation (2 = panic).
+-b {{ cis_auditd_backlog_limit }}
+--backlog_wait_time 60000
+-f 2
+
+## Suppression des regles existantes au chargement (idempotence).
+-D
+
+## --- Modification de l'heure / du fuseau -----------------------------------
+-a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change
+-a always,exit -F arch=b64 -S clock_settime -k time-change
+-w /etc/localtime -p wa -k time-change
+
+## --- Identite et authentification ------------------------------------------
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/security/opasswd -p wa -k identity
+-w /etc/sudoers -p wa -k scope
+-w /etc/sudoers.d/ -p wa -k scope
+-w /etc/pam.d/ -p wa -k pam
+
+## --- Connexions / deconnexions ---------------------------------------------
+-w /var/log/faillog -p wa -k logins
+-w /var/log/lastlog -p wa -k logins
+-w /var/run/utmp -p wa -k session
+-w /var/log/wtmp -p wa -k session
+-w /var/log/btmp -p wa -k session
+
+## --- Modification du systeme ------------------------------------------------
+-a always,exit -F arch=b64 -S sethostname -S setdomainname -k system-locale
+-w /etc/hostname -p wa -k system-locale
+-w /etc/hosts -p wa -k system-locale
+-w /etc/network/ -p wa -k system-locale
+-w /etc/sysconfig/network -p wa -k system-locale
+-w /etc/sysctl.conf -p wa -k system-locale
+-w /etc/sysctl.d/ -p wa -k system-locale
+
+## --- Modules noyau ----------------------------------------------------------
+-w /sbin/insmod -p x -k modules
+-w /sbin/rmmod -p x -k modules
+-w /sbin/modprobe -p x -k modules
+-a always,exit -F arch=b64 -S init_module -S delete_module -k modules
+
+## --- SSH --------------------------------------------------------------------
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+-w /etc/ssh/ssh_host_ed25519_key -p wa -k sshd
+-w /etc/ssh/ssh_host_rsa_key -p wa -k sshd
+
+## --- Outils d'audit (anti-alteration de la piste d'audit) -------------------
+-w /sbin/auditctl -p x -k audit_tools
+-w /sbin/auditd -p x -k audit_tools
+-w /usr/sbin/auditctl -p x -k audit_tools
+-w /usr/sbin/auditd -p x -k audit_tools
+-w /etc/audit/ -p wa -k audit_config
+-w /etc/audit/rules.d/ -p wa -k audit_config
+
+## --- Escalade de privileges -------------------------------------------------
+-a always,exit -F arch=b64 -S setuid -S setgid -S setresuid -S setresgid -S setreuid -S setregid -k privilege_escalation
+-w /etc/ld.so.conf -p wa -k privilege_escalation
+-w /etc/ld.so.conf.d/ -p wa -k privilege_escalation
+
+## --- Rendre les regles immuables (necessite un redemarrage pour les modifier).
+## Decommenter en production apres validation :
+# -e 2

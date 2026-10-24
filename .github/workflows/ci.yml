@@ -1,0 +1,398 @@
+# =============================================================================
+# SecuriGlass Factory OS - Pipeline CI (qualite, securite, supply chain)
+# =============================================================================
+# Jobs :
+#   lint   : black --check, mypy --strict, ruff (pyflakes) ;
+#   test   : pytest + couverture, PostgreSQL 16 (sans pgAudit) ;
+#   sast   : bandit + semgrep (p/ci + regles maison security/semgrep.yml) ;
+#   sca    : pip-audit + npm audit (si frontend present) ;
+#   docker : build des images + scan Trivy (CRITICAL/HIGH bloquants) ;
+#   sbom   : Syft (SPDX-JSON) sur les images exportees ;
+#   sign   : Cosign keyless (OIDC) - DESACTIVE par defaut, voir ci-dessous.
+#
+# Supply chain :
+#   - permissions par defaut : contents: read (aucune ecriture) ;
+#   - actions epinglees par version majeure (ou version exacte pour les outils
+#     de securite sans version majeure stable) ;
+#   - concurrency : annule les executions obsoletes de la meme branche ;
+#   - cache pip/npm ;
+#   - aucun secret versionne : seules des valeurs ephemeres de CI sont definies.
+#
+# Signature Cosign (keyless) :
+#   Le job `sign` est volontairement conditionne a la variable de depot
+#   ENABLE_IMAGE_SIGNING=true ET a un evenement hors pull_request. Il exige
+#   `id-token: write` (OIDC GitHub) et pousse l'image sur GHCR. Tant qu'aucun
+#   registre n'est configure, il est ignore : le PoC ne publie pas d'image.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Lint & typage statique
+  # ---------------------------------------------------------------------------
+  lint:
+    name: "Lint & typage"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: "Recuperer le depot"
+        uses: actions/checkout@v7
+
+      - name: "Installer Python ${{ env.PYTHON_VERSION }} (cache pip)"
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            services/backend-api/requirements.txt
+            services/backend-api/requirements-dev.txt
+
+      - name: "Installer les dependances de developpement"
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/backend-api/requirements-dev.txt
+
+      - name: "Black (formatage)"
+        run: black --check services/backend-api/app tests security/tests
+
+      - name: "Mypy strict (typage)"
+        working-directory: services/backend-api
+        run: mypy --strict app
+
+      - name: "Ruff (erreurs pyflakes bloquantes)"
+        run: |
+          pip install --quiet ruff
+          ruff check services/backend-api/app --select E9,F63,F7,F82
+
+  # ---------------------------------------------------------------------------
+  # Tests + couverture (PostgreSQL 16, sans pgAudit)
+  # ---------------------------------------------------------------------------
+  test:
+    name: "Tests & couverture"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: securiglass_db
+          POSTGRES_USER: securiglass_admin
+          POSTGRES_PASSWORD: ci_postgres_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U securiglass_admin -d securiglass_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      ENVIRONMENT: test
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql://securiglass_admin:ci_postgres_password@127.0.0.1:5432/securiglass_db
+      SECURIGLASS_TEST_DATABASE_URL: postgresql://securiglass_admin:ci_postgres_password@127.0.0.1:5432/securiglass_db
+      SECRET_KEY: ci-only-secret-key-0123456789abcdef0123456789abcdef
+      TDE_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      SECURIGLASS_ADMIN_PASSWORD: ci-only-admin-password-not-a-secret
+
+    steps:
+      - name: "Recuperer le depot"
+        uses: actions/checkout@v7
+
+      - name: "Installer Python ${{ env.PYTHON_VERSION }} (cache pip)"
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            services/backend-api/requirements.txt
+            services/backend-api/requirements-dev.txt
+
+      - name: "Installer les dependances"
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/backend-api/requirements-dev.txt
+          # Dependance runtime absente de requirements.txt (defaut documente
+          # dans security/REPORT.md) : necessaire a l'import de app.core.db.
+          pip install "asyncpg==0.30.0"
+
+      - name: "Initialiser la base (Alembic)"
+        env:
+          SECURIGLASS_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: alembic upgrade head
+
+      - name: "Pytest + couverture"
+        # pgAudit n'est PAS requis en CI : postgres:16 standard.
+        # -m "not pgaudit" : convention projet pour les futurs tests marques.
+        # --deselect : le test live pgaudit existant n'est pas marque a ce jour.
+        run: |
+          pytest tests/ \
+            -m "not pgaudit" \
+            --deselect tests/integration/test_pgaudit_spec.py::test_live_postgres_pgaudit_settings \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=85 \
+            -ra
+
+      - name: "Archiver le rapport de couverture"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # SAST : bandit + semgrep
+  # ---------------------------------------------------------------------------
+  sast:
+    name: "SAST (bandit + semgrep)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: "Recuperer le depot"
+        uses: actions/checkout@v7
+
+      - name: "Installer Python ${{ env.PYTHON_VERSION }} (cache pip)"
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/backend-api/requirements-dev.txt
+
+      - name: "Installer bandit et semgrep"
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/backend-api/requirements-dev.txt
+          pip install semgrep
+
+      - name: "Bandit (issues medium/high bloquantes)"
+        working-directory: services/backend-api
+        run: bandit -r app -ll -q
+
+      - name: "Semgrep (p/ci + regles maison)"
+        run: |
+          semgrep scan \
+            --config p/ci \
+            --config security/semgrep.yml \
+            --severity ERROR \
+            --error \
+            --metrics=off \
+            --disable-version-check \
+            services/backend-api/app
+
+  # ---------------------------------------------------------------------------
+  # SCA : dependances Python et (si present) frontend
+  # ---------------------------------------------------------------------------
+  sca:
+    name: "SCA (pip-audit + npm audit)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: "Recuperer le depot"
+        uses: actions/checkout@v7
+
+      - name: "Installer Python ${{ env.PYTHON_VERSION }}"
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: "Installer pip-audit"
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+
+      - name: "pip-audit (dependances de production, bloquant)"
+        run: |
+          pip-audit \
+            -r services/backend-api/requirements.txt \
+            --strict \
+            --progress-spinner off \
+            --format columns
+
+      - name: "Installer Node.js ${{ env.NODE_VERSION }} (si frontend present)"
+        if: hashFiles('services/frontend-ui/package-lock.json') != ''
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: services/frontend-ui/package-lock.json
+
+      - name: "npm audit (si frontend present)"
+        if: hashFiles('services/frontend-ui/package-lock.json') != ''
+        working-directory: services/frontend-ui
+        run: npm audit --audit-level=high --omit=dev
+
+  # ---------------------------------------------------------------------------
+  # Build des images + scan Trivy bloquant
+  # ---------------------------------------------------------------------------
+  docker:
+    name: "Docker build + Trivy"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: "Recuperer le depot"
+        uses: actions/checkout@v7
+
+      - name: "Build backend (distroless, non-root)"
+        run: |
+          docker build -f security/docker/backend.Dockerfile \
+            -t securiglass/backend-api:ci .
+
+      - name: "Build frontend (si present)"
+        if: hashFiles('services/frontend-ui/package.json') != ''
+        run: |
+          docker build -f security/docker/frontend.Dockerfile \
+            -t securiglass/frontend-ui:ci .
+
+      - name: "Trivy - image backend (CRITICAL/HIGH bloquants)"
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: securiglass/backend-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: "false"
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+          trivy-config: security/trivy.yaml
+
+      - name: "Trivy - image frontend (si presente)"
+        if: hashFiles('services/frontend-ui/package.json') != ''
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: securiglass/frontend-ui:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: "false"
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+          trivy-config: security/trivy.yaml
+
+      - name: "Trivy - mauvaises configurations (Dockerfiles)"
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: config
+          scan-ref: security/docker
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          trivy-config: security/trivy.yaml
+
+      - name: "Exporter les images pour le job SBOM"
+        run: |
+          mkdir -p artifacts
+          docker save -o artifacts/backend-image.tar securiglass/backend-api:ci
+          if docker image inspect securiglass/frontend-ui:ci >/dev/null 2>&1; then
+            docker save -o artifacts/frontend-image.tar securiglass/frontend-ui:ci
+          fi
+
+      - name: "Archiver les images"
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-images
+          path: artifacts/*.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # SBOM : Syft (SPDX-JSON) des images construites
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: "SBOM (Syft)"
+    needs: docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: "Recuperer les images"
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-images
+          path: artifacts
+
+      - name: "Installer Syft"
+        uses: anchore/sbom-action/download-syft@v0.24.3
+
+      - name: "SBOM backend (SPDX-JSON)"
+        run: |
+          syft "docker-archive:artifacts/backend-image.tar" \
+            -o spdx-json=sbom-backend.spdx.json
+
+      - name: "SBOM frontend (si present)"
+        if: hashFiles('artifacts/frontend-image.tar') != ''
+        run: |
+          syft "docker-archive:artifacts/frontend-image.tar" \
+            -o spdx-json=sbom-frontend.spdx.json
+
+      - name: "Archiver les SBOM"
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom-*.spdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Signature Cosign keyless (OPT-IN, registre requis)
+  # ---------------------------------------------------------------------------
+  sign:
+    name: "Signature Cosign (keyless, opt-in)"
+    needs: [docker, sbom]
+    if: github.event_name != 'pull_request' && vars.ENABLE_IMAGE_SIGNING == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE: ghcr.io/${{ github.repository }}/backend-api
+    steps:
+      - name: "Recuperer les images"
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-images
+          path: artifacts
+
+      - name: "Charger l'image backend"
+        run: docker load -i artifacts/backend-image.tar
+
+      - name: "Installer Cosign"
+        uses: sigstore/cosign-installer@v4
+
+      - name: "Se connecter a GHCR"
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "Pousser et signer (keyless OIDC)"
+        run: |
+          IMAGE_REF="${IMAGE}:${GITHUB_SHA}"
+          docker tag securiglass/backend-api:ci "${IMAGE_REF}"
+          docker push "${IMAGE_REF}"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE_REF}" | cut -d@ -f2)"
+          echo "Digest signé : ${IMAGE_REF}@${DIGEST}"
+          cosign sign --yes "${IMAGE_REF}@${DIGEST}"

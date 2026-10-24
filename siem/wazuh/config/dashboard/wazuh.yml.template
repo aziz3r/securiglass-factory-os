@@ -1,0 +1,14 @@
+---
+# ============================================================================
+# SecuriGlass Factory OS - Connexion Dashboard -> API Wazuh (MODELE)
+# ----------------------------------------------------------------------------
+# Genere par `scripts/bootstrap.sh` (mot de passe issu de API_PASSWORD).
+# Le fichier genere est ignore par git.
+# ============================================================================
+hosts:
+  - 1513629884013:
+      url: "https://wazuh.manager"
+      port: 55000
+      username: "wazuh-wui"
+      password: "__API_PASSWORD__"
+      run_as: false

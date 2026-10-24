@@ -1,0 +1,227 @@
+# ============================================================================
+# SecuriGlass Factory OS - Pile SOC Wazuh (PoC, noeud unique)
+# ----------------------------------------------------------------------------
+# Cible : collecte et corrélation des journaux IT/OT sur un poste d'analyse.
+# Aucun secret n'est ecrit dans ce fichier : tout vient de `siem/.env`
+# (genere par `siem/scripts/bootstrap.sh`, jamais commite).
+#
+# Empreinte memoire (limites dures, a ajuster selon la machine) :
+#   - wazuh.indexer   : 2 Go  (tas JVM 1 Go par defaut)
+#   - wazuh.manager   : 1 Go
+#   - wazuh.dashboard : 768 Mo
+#   Total max         : ~3,8 Go ; prevoir >= 5 Go libres (8 Go recommandes).
+#   Disque            : ~10 Go (images + index + archives), volumes nommes.
+#
+# Demarrage :
+#   cd siem && ./scripts/bootstrap.sh
+#   docker compose up -d
+#   Dashboard : https://127.0.0.1:8443 (certificat interne auto-signe)
+# ============================================================================
+
+name: securiglass-soc
+
+services:
+  wazuh.indexer:
+    image: wazuh/wazuh-indexer:4.9.2
+    hostname: wazuh.indexer
+    container_name: securiglass-wazuh-indexer
+    restart: unless-stopped
+    mem_limit: 2g
+    mem_reservation: 1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    environment:
+      TZ: ${SOC_TIMEZONE:-Europe/Paris}
+      OPENSEARCH_JAVA_OPTS: ${INDEXER_JAVA_OPTS:--Xms1g -Xmx1g}
+      # Utilise uniquement par le healthcheck ; le mot de passe reel est
+      # verifie par le hash bcrypt de internal_users.yml (genere au bootstrap).
+      INDEXER_PASSWORD: ${INDEXER_PASSWORD:?Definir INDEXER_PASSWORD dans siem/.env}
+    ports:
+      - "127.0.0.1:${SOC_INDEXER_PORT:-9200}:9200"
+    volumes:
+      - wazuh-indexer-data:/var/lib/wazuh-indexer
+      - ./wazuh/certs/root-ca.pem:/usr/share/wazuh-indexer/certs/root-ca.pem:ro
+      - ./wazuh/certs/wazuh.indexer.pem:/usr/share/wazuh-indexer/certs/wazuh.indexer.pem:ro
+      - ./wazuh/certs/wazuh.indexer-key.pem:/usr/share/wazuh-indexer/certs/wazuh.indexer.key:ro
+      - ./wazuh/certs/admin.pem:/usr/share/wazuh-indexer/certs/admin.pem:ro
+      - ./wazuh/certs/admin-key.pem:/usr/share/wazuh-indexer/certs/admin-key.pem:ro
+      - ./wazuh/config/indexer/wazuh.indexer.yml:/usr/share/wazuh-indexer/opensearch.yml:ro
+      - ./wazuh/config/indexer/internal_users.yml:/usr/share/wazuh-indexer/opensearch-security/internal_users.yml:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sk -u \"admin:$${INDEXER_PASSWORD}\" https://localhost:9200/_cluster/health >/dev/null || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    networks:
+      - soc_net
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      com.securiglass.layer: "soc"
+      com.securiglass.purdue: "4"
+      com.securiglass.component: "wazuh-indexer"
+
+  wazuh.manager:
+    image: wazuh/wazuh-manager:4.9.2
+    hostname: wazuh.manager
+    container_name: securiglass-wazuh-manager
+    restart: unless-stopped
+    mem_limit: 1g
+    mem_reservation: 512m
+    depends_on:
+      wazuh.indexer:
+        condition: service_healthy
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 655360
+        hard: 655360
+    environment:
+      TZ: ${SOC_TIMEZONE:-Europe/Paris}
+      INDEXER_URL: https://wazuh.indexer:9200
+      INDEXER_USERNAME: ${INDEXER_USERNAME:-admin}
+      INDEXER_PASSWORD: ${INDEXER_PASSWORD:?Definir INDEXER_PASSWORD dans siem/.env}
+      FILEBEAT_SSL_VERIFICATION_MODE: full
+      SSL_CERTIFICATE_AUTHORITIES: /etc/ssl/root-ca.pem
+      SSL_CERTIFICATE: /etc/ssl/filebeat.pem
+      SSL_KEY: /etc/ssl/filebeat.key
+      API_USERNAME: ${API_USERNAME:-wazuh-wui}
+      API_PASSWORD: ${API_PASSWORD:?Definir API_PASSWORD dans siem/.env}
+    ports:
+      - "1514:1514"
+      - "1515:1515"
+      - "127.0.0.1:${SOC_MANAGER_API_PORT:-55000}:55000"
+      - "514:514/udp"
+    volumes:
+      - wazuh_api_configuration:/var/ossec/api/configuration
+      - wazuh_etc:/var/ossec/etc
+      - wazuh_logs:/var/ossec/logs
+      - wazuh_queue:/var/ossec/queue
+      - wazuh_var_multigroups:/var/ossec/var/multigroups
+      - wazuh_integrations:/var/ossec/integrations
+      - wazuh_active_response:/var/ossec/active-response/bin
+      - wazuh_agentless:/var/ossec/agentless
+      - wazuh_wodles:/var/ossec/wodles
+      - filebeat_etc:/etc/filebeat
+      - filebeat_var:/var/lib/filebeat
+      # Configuration durcie (FIM, collecte applicative, indexation)
+      - ./wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
+      # Regles et decodeurs locaux (IDs >= 100000)
+      - ./wazuh/rules:/var/ossec/etc/rules:ro
+      - ./wazuh/decoders:/var/ossec/etc/decoders:ro
+      # Journaux normalises deposes par l'exportateur SecuriGlass / le collecteur
+      - ./logs:/var/log/securiglass:ro
+      # Certificats mTLS vers l'indexeur
+      - ./wazuh/certs/root-ca.pem:/etc/ssl/root-ca.pem:ro
+      - ./wazuh/certs/wazuh.manager.pem:/etc/ssl/filebeat.pem:ro
+      - ./wazuh/certs/wazuh.manager-key.pem:/etc/ssl/filebeat.key:ro
+    healthcheck:
+      test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - soc_net
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      com.securiglass.layer: "soc"
+      com.securiglass.purdue: "4"
+      com.securiglass.component: "wazuh-manager"
+
+  wazuh.dashboard:
+    image: wazuh/wazuh-dashboard:4.9.2
+    hostname: wazuh.dashboard
+    container_name: securiglass-wazuh-dashboard
+    restart: unless-stopped
+    mem_limit: 768m
+    mem_reservation: 384m
+    depends_on:
+      wazuh.indexer:
+        condition: service_healthy
+      wazuh.manager:
+        condition: service_started
+    environment:
+      TZ: ${SOC_TIMEZONE:-Europe/Paris}
+      INDEXER_USERNAME: ${INDEXER_USERNAME:-admin}
+      INDEXER_PASSWORD: ${INDEXER_PASSWORD:?Definir INDEXER_PASSWORD dans siem/.env}
+      WAZUH_API_URL: https://wazuh.manager
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME:-kibanaserver}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?Definir DASHBOARD_PASSWORD dans siem/.env}
+      API_USERNAME: ${API_USERNAME:-wazuh-wui}
+      API_PASSWORD: ${API_PASSWORD:?Definir API_PASSWORD dans siem/.env}
+    ports:
+      - "127.0.0.1:${SOC_DASHBOARD_PORT:-8443}:5601"
+    volumes:
+      - ./wazuh/certs/wazuh.dashboard.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem:ro
+      - ./wazuh/certs/wazuh.dashboard-key.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem:ro
+      - ./wazuh/certs/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem:ro
+      - ./wazuh/config/dashboard/opensearch_dashboards.yml:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml:ro
+      - ./wazuh/config/dashboard/wazuh.yml:/usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml:ro
+      - wazuh-dashboard-config:/usr/share/wazuh-dashboard/data/wazuh/config
+      - wazuh-dashboard-custom:/usr/share/wazuh-dashboard/plugins/wazuh/public/assets/custom
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost:5601/api/status >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    networks:
+      - soc_net
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      com.securiglass.layer: "soc"
+      com.securiglass.purdue: "4"
+      com.securiglass.component: "wazuh-dashboard"
+
+networks:
+  soc_net:
+    name: securiglass_soc_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  wazuh-indexer-data:
+    name: securiglass_wazuh_indexer_data
+  wazuh_api_configuration:
+    name: securiglass_wazuh_api_config
+  wazuh_etc:
+    name: securiglass_wazuh_etc
+  wazuh_logs:
+    name: securiglass_wazuh_logs
+  wazuh_queue:
+    name: securiglass_wazuh_queue
+  wazuh_var_multigroups:
+    name: securiglass_wazuh_multigroups
+  wazuh_integrations:
+    name: securiglass_wazuh_integrations
+  wazuh_active_response:
+    name: securiglass_wazuh_active_response
+  wazuh_agentless:
+    name: securiglass_wazuh_agentless
+  wazuh_wodles:
+    name: securiglass_wazuh_wodles
+  filebeat_etc:
+    name: securiglass_filebeat_etc
+  filebeat_var:
+    name: securiglass_filebeat_var
+  wazuh-dashboard-config:
+    name: securiglass_wazuh_dashboard_config
+  wazuh-dashboard-custom:
+    name: securiglass_wazuh_dashboard_custom

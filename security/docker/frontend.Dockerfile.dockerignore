@@ -1,0 +1,4 @@
+# Contexte minimal : sources frontend + configuration nginx uniquement.
+*
+!services/frontend-ui/**
+!security/docker/nginx.conf

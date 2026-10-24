@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr" data-app="securiglass">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="referrer" content="no-referrer" />
+    <!--
+      CSP stricte appliquée par le navigateur à chaque chargement de la SPA.
+      - Aucune source externe, aucun inline, aucun eval.
+      - `frame-ancestors` est IGNORÉ dans une balise meta (spec CSP) : la variante
+        HTTP à servir par nginx est fournie dans deploy/nginx.conf.example et
+        deploy/security-headers.conf. Les deux politiques se cumulent.
+      - Le build de production ne contient AUCUN script inline (vérifié par
+        `npm run verify:build`). En développement uniquement, vite.config.ts
+        assouplit `style-src`/`connect-src` pour le HMR (jamais dans le build).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; manifest-src 'self'; worker-src 'none'"
+    />
+    <meta name="theme-color" content="#f3efe7" />
+    <title>SecuriGlass Factory OS — Console</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Cette console nécessite JavaScript (modules ES) et une politique CSP stricte.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

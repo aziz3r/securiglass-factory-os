@@ -1,0 +1,66 @@
+---
+# =============================================================================
+# SecuriGlass Factory OS - Playbook de durcissement CIS Linux
+# =============================================================================
+# Cibles : serveurs Linux Debian/Ubuntu et RHEL/Rocky/Alma (Purdue 3/4).
+# Reference : CIS Benchmarks Distribution Independent Linux / Debian / RHEL,
+#             IEC 62443-3-3, ANSSI-BP-028.
+#
+# Usage :
+#   cp inventory.example.ini inventory.ini   # puis adapter les hotes
+#   ansible-playbook playbook-hardening.yml --check --diff
+#   ansible-playbook playbook-hardening.yml --diff
+#
+# ATTENTION : le durcissement SSH peut couper l'acces. Toujours valider en
+# --check, conserver une session de secours ouverte, et verifier que la cle
+# de l'automate est autorisee avant d'appliquer PermitRootLogin=no /
+# PasswordAuthentication=no.
+# =============================================================================
+
+- name: "SecuriGlass - durcissement CIS Linux (SSH, reseau, audit, journalisation)"
+  hosts: linux_hardening
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+
+  vars:
+    # Les taches qui manipulent des secrets (ou des extraits de configuration
+    # sensibles) portent no_log: "{{ cis_no_log }}".
+    cis_no_log: true
+
+  pre_tasks:
+    - name: "Pre-vol - verifier la famille d'OS supportee"
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+          - ansible_distribution_major_version is defined
+        fail_msg: >-
+          Famille d'OS non supportee ({{ ansible_os_family }}). Ce role cible
+          Debian/Ubuntu ou RHEL/Rocky/Alma.
+        success_msg: "OS supporte : {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    - name: "Pre-vol - avertir en cas de conteneur (auditd/systemd limites)"
+      ansible.builtin.debug:
+        msg: >-
+          ATTENTION : execution detectee dans un conteneur
+          ({{ ansible_virtualization_type }}). auditd et la persistance journald
+          peuvent etre inoperants ; reserver ce playbook aux hotes reels.
+      when: ansible_virtualization_type in ['docker', 'container', 'containerd']
+
+  roles:
+    - role: cis_linux
+
+  post_tasks:
+    - name: "Post-vol - verifier la syntaxe effective de sshd"
+      ansible.builtin.command: "{{ cis_sshd_binary }} -T"
+      register: cis_sshd_effective
+      changed_when: false
+      check_mode: false
+      failed_when: cis_sshd_effective.rc != 0
+      no_log: "{{ cis_no_log }}"
+
+    - name: "Post-vol - rappeler la necessite de redemarrer les services concernes"
+      ansible.builtin.debug:
+        msg:
+          - "Durcissement applique. Verifier une NOUVELLE session SSH avant de fermer celle-ci."
+          - "Les handlers ont redemarre sshd/auditd/systemd-journald si necessaire."

@@ -1,0 +1,60 @@
+# {{ ansible_managed }}
+# =============================================================================
+# SecuriGlass Factory OS - sshd_config durci (CIS / ANSSI-BP-028)
+# Genere par Ansible - toute modification manuelle sera ecrasee.
+# =============================================================================
+# NOTE : les drop-in /etc/ssh/sshd_config.d/*.conf ne sont volontairement pas
+# inclus afin qu'aucune surcharge ne puisse reactiver un reglage faible.
+
+Port {{ cis_ssh_port }}
+Protocol 2
+AddressFamily any
+ListenAddress 0.0.0.0
+
+# --- Authentification -------------------------------------------------------
+PermitRootLogin {{ cis_ssh_permit_root_login }}
+PubkeyAuthentication {{ cis_ssh_pubkey_authentication }}
+PasswordAuthentication {{ cis_ssh_password_authentication }}
+PermitEmptyPasswords {{ cis_ssh_permit_empty_passwords }}
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+GSSAPIAuthentication no
+KerberosAuthentication no
+HostbasedAuthentication no
+IgnoreRhosts yes
+UsePAM yes
+AuthenticationMethods publickey
+MaxAuthTries {{ cis_ssh_max_auth_tries }}
+MaxSessions {{ cis_ssh_max_sessions }}
+LoginGraceTime {{ cis_ssh_login_grace_time }}
+MaxStartups {{ cis_ssh_max_startups }}
+
+# --- Restrictions de fonctionnalites ---------------------------------------
+AllowAgentForwarding {{ cis_ssh_allow_agent_forwarding }}
+AllowTcpForwarding {{ cis_ssh_allow_tcp_forwarding }}
+PermitTunnel no
+X11Forwarding {{ cis_ssh_x11_forwarding }}
+PermitUserEnvironment no
+PermitEmptyPasswords no
+StrictModes yes
+
+# --- Cryptographie ----------------------------------------------------------
+KexAlgorithms {{ cis_ssh_kex_algorithms | join(',') }}
+Ciphers {{ cis_ssh_ciphers | join(',') }}
+MACs {{ cis_ssh_macs | join(',') }}
+
+# --- Journalisation et session ---------------------------------------------
+LogLevel {{ cis_ssh_log_level }}
+SyslogFacility AUTH
+PrintLastLog yes
+PrintMotd no
+UseDNS {{ cis_ssh_use_dns }}
+ClientAliveInterval {{ cis_ssh_client_alive_interval }}
+ClientAliveCountMax {{ cis_ssh_client_alive_count_max }}
+Banner {{ cis_ssh_banner }}
+{% if ansible_os_family == 'Debian' %}
+DebianBanner no
+{% endif %}
+
+# --- Sous-systeme SFTP ------------------------------------------------------
+Subsystem sftp {{ cis_sshd_sftp_subsystem }}
